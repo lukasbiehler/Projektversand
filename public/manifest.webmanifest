@@ -1,0 +1,9 @@
+{
+  "name": "Projektversand – Verpacken & Versenden",
+  "short_name": "Projektversand",
+  "start_url": "./#/scan",
+  "display": "standalone",
+  "background_color": "#f2f4f6",
+  "theme_color": "#0b4f8a",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

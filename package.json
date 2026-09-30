@@ -1,0 +1,24 @@
+{
+  "name": "projektversand",
+  "version": "1.0.0",
+  "description": "Projektversand – Verpacken & Versenden (Packvorrat, Handling Units, Scanner, Bilddokumentation, Etiketten, Status, Rückwärtssuche)",
+  "private": true,
+  "type": "commonjs",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "start:https": "node server/index.js --https",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "bwip-js": "^4.11.4",
+    "express": "^5.2.1",
+    "html5-qrcode": "^2.3.8",
+    "selfsigned": "^5.5.0",
+    "three": "^0.186.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}
