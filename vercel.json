@@ -4,10 +4,13 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {
-      "includeFiles": "{public/**,docs/beispieldaten/**,node_modules/three/build/three.module.js,node_modules/three/build/three.core.js,node_modules/three/examples/jsm/controls/OrbitControls.js,node_modules/bwip-js/dist/bwip-js-min.js,node_modules/html5-qrcode/html5-qrcode.min.js,node_modules/xlsx/dist/xlsx.full.min.js}"
+      "includeFiles": "{public,docs/beispieldaten,node_modules/three/build,node_modules/three/examples/jsm/controls,node_modules/bwip-js/dist,node_modules/xlsx/dist,node_modules/html5-qrcode}/**"
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
   ]
 }
