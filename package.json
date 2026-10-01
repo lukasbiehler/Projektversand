@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server/index.js",
     "start:https": "node server/index.js --https",
+    "demo": "node server/index.js --demo",
     "test": "node --test test/*.test.js"
   },
   "engines": {

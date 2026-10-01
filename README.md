@@ -36,7 +36,30 @@ Optionen: `--port 9000`, `--data D:\Versanddaten`.
 
 Eine Schritt-für-Schritt-Testanleitung mit Beispieldaten steht in [docs/TESTANLEITUNG.md](docs/TESTANLEITUNG.md).
 
-Tests: `npm test` (34 Tests: Geschäftsregeln, Schnittstellen und Beladungsalgorithmus mit unabhängiger Regelprüfung).
+Tests: `npm test` (40 Tests: Geschäftsregeln, Schnittstellen und Beladungsalgorithmus mit unabhängiger Regelprüfung).
+
+## Demo-Version (z. B. Vercel)
+
+Zum Vorstellen der Idee gibt es einen Demo-Modus. Er ändert nichts am normalen Betrieb.
+
+- **Vercel:** Repository importieren, keine weiteren Einstellungen nötig (`vercel.json` und `api/index.js` sind
+  vorhanden). Jeder Push löst eine neue Bereitstellung aus.
+- **Lokal:** `npm run demo` (startet wie auf Vercel, Daten im Temp-Ordner, echte Daten in `data/` bleiben unberührt).
+
+Verhalten im Demo-Modus:
+
+- Beim Start wird das Beispielprojekt **P-25001** angelegt (wie in der Testanleitung, mit versandbereiten Packstücken,
+  einem Fehlteil, einem berechneten Ladeplan und einer geplanten Lieferung zum Vorführen der Verladung).
+  Offen zum Vorführen: die leere „Kiste Schaltschrank“ (Material `300001` scannen).
+- Eine Hinweisleiste warnt, keine echten Daten einzugeben, und bietet **Beispielprojekt neu laden**, **Leer starten**
+  (für die Testanleitung) und die **Beispieldateien** zum Herunterladen.
+- Andere Geräte werden alle 5 Sekunden aktualisiert (statt dauerhafter Echtzeit-Verbindung).
+- Netzwerkdrucker und SAP-Endpunkt sind gesperrt, damit eine öffentliche Demo keine Verbindungen zu fremden Systemen
+  aufbauen kann. Etiketten gehen über den Browserdruck oder als ZPL-Datei.
+
+Grenzen: Die Daten liegen im temporären Speicher der Vercel-Instanz. Nach einigen Minuten ohne Aufrufe startet die
+Demo wieder mit dem Beispielprojekt. Startet Vercel parallel eine zweite Instanz, sieht diese eigene Daten – bei einer
+einzelnen Vorführung selten, aber möglich. Es gibt keine Anmeldung: den Link nur gezielt weitergeben.
 
 ## Abdeckung der Anforderungen
 

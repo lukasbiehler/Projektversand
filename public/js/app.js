@@ -1,5 +1,5 @@
 // Einstieg: Routing, Echtzeit-Aktualisierung, Hardware-Scanner, Benutzer
-import { h, state, loadMeta, getUser, setUser, formDialog, isEditable, debounce, openCode, toast, feedback, showError, runCleanups } from './core.js';
+import { h, state, loadMeta, getUser, setUser, formDialog, isEditable, debounce, openCode, toast, feedback, showError, runCleanups, get, post, modal, confirmDialog } from './core.js';
 import * as home from './views/home.js';
 import * as project from './views/project.js';
 import * as hu from './views/hu.js';
@@ -125,6 +125,67 @@ function connectLive() {
   };
 }
 
+/** Ohne dauerhafte Verbindung (Demo auf Vercel): Änderungen alle 5 Sekunden abfragen */
+function startPolling() {
+  const dot = document.getElementById('live');
+  let last = null;
+  let instance = null;
+  const tick = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await get(`/changes?since=${last || 0}`);
+      dot.classList.add('on');
+      dot.title = 'Aktualisierung alle 5 Sekunden';
+      if (instance && r.instance !== instance) { instance = r.instance; last = r.last; liveRefresh(); return; }
+      instance = r.instance;
+      if (last !== null && r.last !== last) {
+        const pid = current && current.ctx.projectId;
+        if (!pid || r.last < last || r.projects.includes(pid) || r.projects.includes(null)) liveRefresh();
+      }
+      last = r.last;
+    } catch {
+      dot.classList.remove('on');
+      dot.title = 'Server nicht erreichbar';
+    }
+  };
+  tick();
+  setInterval(tick, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+}
+
+/** Hinweisleiste der Demo-Version mit Zurücksetzen und Beispieldateien */
+function showDemoBanner() {
+  const el = document.getElementById('demo-banner');
+  const reset = async (mode) => {
+    const text = mode === 'empty'
+      ? 'Alle Daten löschen und mit einer leeren Demo starten (passend zur Testanleitung)?'
+      : 'Alle Daten verwerfen und das Beispielprojekt P-25001 neu laden?';
+    if (!(await confirmDialog(text, { ok: 'Zurücksetzen', danger: true }))) return;
+    try {
+      await post('/demo/reset', { mode });
+      location.hash = '#/';
+      location.reload();
+    } catch (err) { showError(err); }
+  };
+  const files = [
+    ['1_materialstamm.csv', 'Materialstamm (SAP-Materialnummern mit Barcodes)'],
+    ['2_sap_projektbedarf.xlsx', 'SAP-Export Projektmaterial (PSP-Elemente)'],
+    ['3_packliste_elektrik.csv', 'Excel-Packliste'],
+    ['4_ladegut_zusatz.csv', 'Zusätzliches Ladegut für die Ladeplanung'],
+  ];
+  el.replaceChildren(
+    h('span', null, h('b', null, 'Demo-Version'), ' – Daten sind nicht dauerhaft und werden zurückgesetzt. Bitte keine echten Firmendaten eingeben.'),
+    h('button', { type: 'button', class: 'btn small', onclick: () => modal({
+      title: 'Beispieldateien für den Import',
+      body: [h('p', { class: 'hint' }, 'Passend zur Testanleitung (docs/TESTANLEITUNG.md). Für die Anleitung vorher „Leer starten“.'),
+        h('ul', null, files.map(([f, d]) => h('li', null, h('a', { href: `/beispieldaten/${f}`, download: f }, f), ` – ${d}`)))],
+      actions: [{ label: 'Schließen', cls: 'primary' }],
+    }) }, 'Beispieldateien'),
+    h('button', { type: 'button', class: 'btn small', onclick: () => reset('sample') }, 'Beispielprojekt neu laden'),
+    h('button', { type: 'button', class: 'btn small', onclick: () => reset('empty') }, 'Leer starten'));
+  el.hidden = false;
+}
+
 // Änderungen in Formularen merken, damit Live-Aktualisierung keine Eingaben verwirft
 document.addEventListener('input', (e) => {
   const t = e.target;
@@ -198,7 +259,7 @@ document.getElementById('userbtn').addEventListener('click', () => askUser(true)
     return;
   }
   window.addEventListener('hashchange', route);
-  connectLive();
+  if (state.meta.demo) { showDemoBanner(); startPolling(); } else connectLive();
   await route();
   askUser(false);
 })();

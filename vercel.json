@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "{public/**,docs/beispieldaten/**,node_modules/three/build/three.module.js,node_modules/three/build/three.core.js,node_modules/three/examples/jsm/controls/OrbitControls.js,node_modules/bwip-js/dist/bwip-js-min.js,node_modules/html5-qrcode/html5-qrcode.min.js,node_modules/xlsx/dist/xlsx.full.min.js}"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ]
+}

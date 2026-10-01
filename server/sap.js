@@ -90,13 +90,17 @@ function createSap(db, getSetting) {
     } while (again);
   }
 
+  function safeRun() {
+    try { processQueue().catch(() => {}); } catch { /* Datenbank geschlossen (z. B. Demo zurückgesetzt) */ }
+  }
+
   function kick() {
-    setImmediate(() => { processQueue().catch(() => {}); });
+    setImmediate(safeRun);
   }
 
   function start() {
     if (timer) return;
-    timer = setInterval(() => { processQueue().catch(() => {}); }, RETRY_INTERVAL_MS);
+    timer = setInterval(safeRun, RETRY_INTERVAL_MS);
     timer.unref?.();
     kick();
   }

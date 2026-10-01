@@ -58,9 +58,9 @@ export async function render(ctx) {
         kpi('Wartend', st.PENDING), kpi('Fehler', st.ERROR, st.ERROR > 0), kpi('Übertragen', st.SENT), kpi('Exportiert', st.EXPORTED)),
       st.last_error ? h('p', { class: 'notice bad' }, `Letzter Fehler: ${st.last_error}`) : null,
       !st.enabled ? h('p', { class: 'notice warn' }, 'Übertragung ist ausgeschaltet oder kein Endpunkt hinterlegt. Nachrichten werden gesammelt.') : null,
-      sapForm,
+      state.meta.demo ? h('p', { class: 'notice' }, 'In der Demo-Version kann kein SAP-Endpunkt eingetragen werden. Die Nachrichten sind unten sichtbar und als JSON exportierbar.') : sapForm,
       h('div', { class: 'row' },
-        btn('Fehlgeschlagene erneut senden', async () => { try { await post('/sap/retry'); toast('Übertragung angestoßen.', 'ok'); setTimeout(() => ctx.refresh(), 800); } catch (err) { showError(err); } }),
+        state.meta.demo ? null : btn('Fehlgeschlagene erneut senden', async () => { try { await post('/sap/retry'); toast('Übertragung angestoßen.', 'ok'); setTimeout(() => ctx.refresh(), 800); } catch (err) { showError(err); } }),
         btn('Offene als JSON exportieren', () => exportJson(false).catch(showError), { icon: 'upload' }),
         btn('Exportieren & als übertragen markieren', async () => {
           if (!(await confirmDialog('Offene Nachrichten exportieren und als „exportiert“ markieren? Sie werden dann nicht mehr automatisch gesendet.', { ok: 'Exportieren' }))) return;
@@ -90,7 +90,8 @@ export async function render(ctx) {
     },
   });
   const printerPanel = h('section', { class: 'panel' },
-    h('div', { class: 'panel-head' }, h('h2', null, 'Etikettendrucker (Netzwerk / WLAN)'), btn('Drucker hinzufügen', () => printerDialog(), { icon: 'plus' })),
+    h('div', { class: 'panel-head' }, h('h2', null, 'Etikettendrucker (Netzwerk / WLAN)'), state.meta.demo ? null : btn('Drucker hinzufügen', () => printerDialog(), { icon: 'plus' })),
+    state.meta.demo ? h('div', { class: 'panel-body' }, h('p', { class: 'notice' }, 'In der Demo-Version sind Netzwerkdrucker deaktiviert. Etiketten lassen sich über den Druckdialog des Browsers drucken oder als ZPL-Datei herunterladen.')) : null,
     h('div', { class: 'panel-body' },
       h('p', { class: 'hint' }, 'Ohne eingerichteten Drucker wird über den Druckdialog des Geräts gedruckt (Etikettengrößen 100 × 150 mm und 100 × 50 mm werden automatisch gesetzt). ZPL-Dateien können zusätzlich heruntergeladen werden.'),
       printers.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },

@@ -18,7 +18,13 @@ const VENDOR = {
   'xlsx.full.min.js': path.join(ROOT, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js'),
 };
 
-function createApp({ dataDir, db: existingDb } = {}) {
+/**
+ * demo: false oder { reset(mode) } – im Demo-Modus werden Funktionen gesperrt, die aus einer öffentlichen Demo heraus
+ * Verbindungen zu fremden Systemen aufbauen würden (SAP-Endpunkt, Netzwerkdrucker), und die Oberfläche fragt Änderungen
+ * regelmäßig ab statt über eine dauerhafte Verbindung (serverlose Umgebungen wie Vercel).
+ */
+function createApp({ dataDir, db: existingDb, demo = false } = {}) {
+  const instance = require('node:crypto').randomUUID();
   const db = existingDb || openDatabase(dataDir);
   const photosDir = dataDir === ':memory:' || !dataDir
     ? fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'projektversand-photos-'))
@@ -68,7 +74,33 @@ function createApp({ dataDir, db: existingDb } = {}) {
 
   // ---------------------------------------------------------------- Meta, Einstellungen, Echtzeit
   api.get('/health', h(() => ({ ok: true })));
+  // Im Demo-Modus gesperrt: ausgehende Verbindungen zu frei eingebbaren Zielen
+  if (demo) {
+    api.use((req, res, next) => {
+      const blocked = (req.method !== 'GET' && (/^\/printers/.test(req.path) || req.path === '/print' || req.path === '/sap/retry'))
+        || (req.method === 'PUT' && req.path === '/settings' && req.body && ['sap_enabled', 'sap_endpoint', 'sap_auth'].some((k) => k in req.body));
+      if (blocked) return next(new AppError(403, 'In der Demo-Version nicht verfügbar (keine Verbindungen zu Druckern oder SAP).'));
+      next();
+    });
+    api.post('/demo/reset', h((req) => {
+      const mode = (req.body || {}).mode === 'empty' ? 'empty' : 'sample';
+      demo.reset(mode);
+      return { ok: true, mode };
+    }));
+  }
+
+  // Änderungen seit einem Protokollstand (Abfrage im Takt, falls keine dauerhafte Verbindung möglich ist)
+  api.get('/changes', h((req) => {
+    const since = Number(req.query.since) || 0;
+    const last = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM events').get().n;
+    const projects = since && last > since
+      ? db.prepare('SELECT DISTINCT project_id FROM events WHERE id > ?').all(since).map((r) => r.project_id)
+      : [];
+    return { instance, last, projects };
+  }));
+
   api.get('/meta', h(() => ({
+    demo: !!demo,
     item_status: C.ITEM_STATUS, base_status: C.BASE_STATUS, hu_status: C.HU_STATUS, pack_status: C.PACK_STATUS, ship_status: C.SHIP_STATUS,
     packaging_types: C.PACKAGING_TYPES, item_sources: C.ITEM_SOURCES, delivery_kinds: C.DELIVERY_KINDS, delivery_status: C.DELIVERY_STATUS,
     photo_phases: C.PHOTO_PHASES, photo_categories: C.PHOTO_CATEGORIES, symbologies: C.SYMBOLOGIES, integer_units: C.INTEGER_UNITS,
@@ -252,6 +284,8 @@ function createApp({ dataDir, db: existingDb } = {}) {
   app.use('/api', api);
 
   // ---------------------------------------------------------------- Oberfläche
+  // Beispieldateien der Testanleitung zum Herunterladen
+  app.use('/beispieldaten', express.static(path.join(ROOT, 'docs', 'beispieldaten'), { maxAge: 0 }));
   // three.js (3D-Ansicht der Ladeplanung) als ES-Module
   app.use('/vendor/three', express.static(path.join(ROOT, 'node_modules', 'three', 'build'), { maxAge: '7d' }));
   app.use('/vendor/three-addons', express.static(path.join(ROOT, 'node_modules', 'three', 'examples', 'jsm'), { maxAge: '7d' }));

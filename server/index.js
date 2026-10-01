@@ -48,16 +48,31 @@ async function main() {
   const port = Number(arg('port', process.env.PORT || (useHttps ? 8443 : 8080)));
   fs.mkdirSync(dataDir, { recursive: true });
 
-  const { app, domain, close } = createApp({ dataDir });
-  domain.sap.start();
+  // --demo: wie auf Vercel (Beispielprojekt, Zurücksetzen, gesperrte Drucker-/SAP-Verbindungen), Daten nur temporär
+  const demoMode = !!arg('demo', process.env.DEMO_MODE === '1');
+  let handler;
+  let close = () => {};
+  if (demoMode) {
+    const { createDemoHost, DEMO_DIR } = require('./demo');
+    // Immer ein eigener temporärer Ordner – der Demo-Modus löscht ihn beim Zurücksetzen (nie die echten Daten)
+    const host = createDemoHost(DEMO_DIR);
+    handler = host.handler;
+    close = () => { const c = host.current(); if (c) c.close(); };
+    console.log('Demo-Modus: Daten sind temporär und werden beim Start mit dem Beispielprojekt angelegt.');
+  } else {
+    const ctx = createApp({ dataDir });
+    ctx.domain.sap.start();
+    handler = ctx.app;
+    close = ctx.close;
+  }
 
-  const server = useHttps ? https.createServer(await loadOrCreateCert(dataDir), app) : http.createServer(app);
+  const server = useHttps ? https.createServer(await loadOrCreateCert(dataDir), handler) : http.createServer(handler);
   server.listen(port, () => {
     const proto = useHttps ? 'https' : 'http';
     console.log('Projektversand läuft:');
     console.log(`  ${proto}://localhost:${port}`);
     for (const ip of lanAddresses()) console.log(`  ${proto}://${ip}:${port}   (für Scanner / Mobilgeräte im Netz)`);
-    console.log(`Daten: ${dataDir}`);
+    console.log(`Daten: ${demoMode ? require('./demo').DEMO_DIR + ' (Demo, temporär)' : dataDir}`);
     if (!useHttps) console.log('Hinweis: Kamera-Scan auf Mobilgeräten benötigt HTTPS → "npm run start:https"');
   });
 
