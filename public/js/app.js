@@ -81,7 +81,14 @@ async function refresh() {
   banner.hidden = true;
   await renderCurrent();
   window.scrollTo(0, y);
-  if (scanId) document.getElementById(scanId)?.focus({ preventScroll: true });
+  if (scanId) {
+    const el = document.getElementById(scanId);
+    if (el) {
+      // Bereits getippte Zeichen im Scanfeld übernehmen (auch solche, die während des Neuaufbaus dazukamen)
+      if (el !== active && active.value) el.value = active.value;
+      el.focus({ preventScroll: true });
+    }
+  }
 }
 
 // ------------------------------------------------------------------ Echtzeit (Server-Sent Events)
@@ -148,6 +155,14 @@ function startPolling() {
       dot.title = 'Server nicht erreichbar';
     }
   };
+  // Eigene Buchungen aktualisieren die Ansicht bereits selbst – Stand nachziehen, damit die nächste Abfrage
+  // die Seite nicht ein zweites Mal neu aufbaut
+  window.addEventListener('pv-changed', async () => {
+    try {
+      const r = await get('/changes');
+      if (r.instance === instance && last !== null && r.last > last) last = r.last;
+    } catch { /* nächste Abfrage meldet den Fehler */ }
+  });
   tick();
   setInterval(tick, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });

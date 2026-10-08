@@ -24,7 +24,8 @@ const VENDOR = {
  * regelmäßig ab statt über eine dauerhafte Verbindung (serverlose Umgebungen wie Vercel).
  */
 function createApp({ dataDir, db: existingDb, demo = false } = {}) {
-  const instance = require('node:crypto').randomUUID();
+  // Kennung des Datenstands: wechselt sie, laden die Oberflächen neu (bei gemeinsamem Demo-Speicher vorgegeben)
+  const instance = (demo && demo.instanceId) || require('node:crypto').randomUUID();
   const db = existingDb || openDatabase(dataDir);
   const photosDir = dataDir === ':memory:' || !dataDir
     ? fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'projektversand-photos-'))

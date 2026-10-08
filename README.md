@@ -36,14 +36,14 @@ Optionen: `--port 9000`, `--data D:\Versanddaten`.
 
 Eine Schritt-für-Schritt-Testanleitung mit Beispieldaten steht in [docs/TESTANLEITUNG.md](docs/TESTANLEITUNG.md).
 
-Tests: `npm test` (40 Tests: Geschäftsregeln, Schnittstellen und Beladungsalgorithmus mit unabhängiger Regelprüfung).
+Tests: `npm test` (48 Tests: Geschäftsregeln, Schnittstellen und Beladungsalgorithmus mit unabhängiger Regelprüfung).
 
 ## Demo-Version (z. B. Vercel)
 
 Zum Vorstellen der Idee gibt es einen Demo-Modus. Er ändert nichts am normalen Betrieb.
 
-- **Vercel:** Repository importieren, keine weiteren Einstellungen nötig (`vercel.json` und `api/index.js` sind
-  vorhanden). Jeder Push löst eine neue Bereitstellung aus.
+- **Vercel:** Repository importieren (`vercel.json` und `api/index.js` sind vorhanden) und den gemeinsamen Speicher
+  einrichten (siehe unten). Jeder Push löst eine neue Bereitstellung aus.
 - **Lokal:** `npm run demo` (startet wie auf Vercel, Daten im Temp-Ordner, echte Daten in `data/` bleiben unberührt).
 
 Verhalten im Demo-Modus:
@@ -57,9 +57,28 @@ Verhalten im Demo-Modus:
 - Netzwerkdrucker und SAP-Endpunkt sind gesperrt, damit eine öffentliche Demo keine Verbindungen zu fremden Systemen
   aufbauen kann. Etiketten gehen über den Browserdruck oder als ZPL-Datei.
 
-Grenzen: Die Daten liegen im temporären Speicher der Vercel-Instanz. Nach einigen Minuten ohne Aufrufe startet die
-Demo wieder mit dem Beispielprojekt. Startet Vercel parallel eine zweite Instanz, sieht diese eigene Daten – bei einer
-einzelnen Vorführung selten, aber möglich. Es gibt keine Anmeldung: den Link nur gezielt weitergeben.
+Für die Präsentation gibt es einen Sprechzettel, der durch das Beispielprojekt führt:
+[docs/DEMO_LEITFADEN.md](docs/DEMO_LEITFADEN.md) bzw. [docs/DEMO_LEITFADEN.pdf](docs/DEMO_LEITFADEN.pdf)
+(PDF neu erzeugen: `python scripts/leitfaden_pdf.py`).
+
+### Gemeinsamer Speicher auf Vercel (erforderlich)
+
+Vercel verteilt die Anfragen auf mehrere Instanzen, jede mit eigenem temporären Speicher. Ohne gemeinsamen Speicher
+sieht jede Instanz eigene Daten (Buchungen „verschwinden“, eben angelegte Lieferungen werden nicht gefunden). Deshalb
+legt die Demo ihren Datenstand in einer Redis-Datenbank ab:
+
+1. Im Vercel-Projekt unter **Storage** → **Create Database** → **Upstash for Redis** (kostenloser Tarif genügt) eine
+   Datenbank anlegen, Region **Frankfurt (eu-central-1)**, und mit dem Projekt verbinden.
+2. Neu bereitstellen (**Deployments** → **Redeploy**), damit die Umgebungsvariablen `KV_REST_API_URL` und
+   `KV_REST_API_TOKEN` wirksam werden (alternativ `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`).
+
+Sind die Variablen gesetzt, gleicht jede Instanz vor einer Anfrage ihren Stand ab und schreibt ihn nach jeder Änderung
+zurück (`server/demo-store.js`); ändernde Anfragen laufen über eine Sperre nacheinander. Lokal (`npm run demo`) wird
+kein Redis benötigt.
+
+Grenzen: Nach 12 Stunden ohne Aufrufe verfällt der Stand, die Demo startet dann wieder mit dem Beispielprojekt.
+Sehr große Fotos kann der Speicher ablehnen; sie sind dann nicht auf allen Instanzen sichtbar. Es gibt keine
+Anmeldung: den Link nur gezielt weitergeben.
 
 ## Abdeckung der Anforderungen
 
