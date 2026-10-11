@@ -108,6 +108,13 @@ async function materialDialog(nr) {
       edit && h('div', { class: 'row' }, h('div', { style: { flex: '1 1 220px' } }, bcInput), h('div', { style: { flex: '0 1 180px' } }, bcSym), btn('Zuordnen', addBc)),
     ],
     actions: [
+      edit && { label: 'Löschen', cls: 'danger', icon: 'trash', onClick: async (close) => {
+        if (!(await confirmDialog(`Material ${m.material_number} mit seinen Barcodes aus dem Materialstamm löschen?`, { ok: 'Löschen', danger: true }))) return;
+        await del(`/materials/${encodeURIComponent(m.material_number)}`);
+        toast('Material gelöscht.', 'ok');
+        close();
+        notifyChanged();
+      } },
       { label: 'Schließen', cls: edit ? '' : 'primary' },
       edit && { label: 'Speichern', cls: 'primary', onClick: async (close) => {
         await put(`/materials/${encodeURIComponent(m.material_number)}`, { description: desc.value, unit: unit.value, weight_kg: weight.value === '' ? null : Number(weight.value) });

@@ -413,6 +413,17 @@ function createAuth(db, { forceSetup = false } = {}) {
     return publicUser(getUser(u.id));
   }
 
+  /** Versehentlich angelegtes Konto entfernen. Benutzte Konten bleiben fürs Protokoll erhalten und werden gesperrt. */
+  function deleteUser(req, id) {
+    const u = getUser(id);
+    if (u.id === req.principal.id) throw bad('Das eigene Konto kann nicht gelöscht werden.');
+    if (u.last_login_at) throw bad(`${u.username} hat sich bereits angemeldet. Benutzte Konten werden nicht gelöscht, sondern gesperrt – so bleibt das Protokoll nachvollziehbar.`);
+    db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    throttle.reset(`u:${u.username}`);
+    audit(req, req.principal.username, 'BENUTZER_GELOESCHT', u.username, ROLES[u.role] || u.role);
+    return { ok: true };
+  }
+
   function listTokens() {
     return db.prepare('SELECT id, name, created_at, created_by, last_used_at FROM api_tokens ORDER BY id').all();
   }
@@ -435,7 +446,7 @@ function createAuth(db, { forceSetup = false } = {}) {
   const listLog = (limit) => db.prepare('SELECT * FROM auth_log ORDER BY id DESC LIMIT ?').all(Math.min(Math.max(Number(limit) || 100, 1), 500));
 
   return {
-    router, guard, can, listUsers, createUser, updateUser, listTokens, createToken, deleteToken, listLog,
+    router, guard, can, audit, listUsers, createUser, updateUser, deleteUser, listTokens, createToken, deleteToken, listLog,
     get setupCode() { return setupCode; },
   };
 }

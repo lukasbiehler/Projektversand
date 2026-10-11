@@ -125,6 +125,65 @@ function createDomain(db, { photosDir, onChange = () => {} } = {}) {
     });
   }
 
+  /** Was hängt am Projekt? Grundlage für die Rückfrage vor dem Löschen. */
+  function projectDeleteInfo(id) {
+    const p = getProject(id);
+    const n = (sql) => db.prepare(sql).get(p.id).n;
+    return {
+      id: p.id, number: p.number, name: p.name,
+      items: n('SELECT COUNT(*) AS n FROM pack_items WHERE project_id = ?'),
+      hus: n('SELECT COUNT(*) AS n FROM handling_units WHERE project_id = ?'),
+      deliveries: n('SELECT COUNT(*) AS n FROM deliveries WHERE project_id = ?'),
+      loadplans: n('SELECT COUNT(*) AS n FROM load_plans WHERE project_id = ?'),
+      photos: db.prepare('SELECT COUNT(*) AS n FROM photos f LEFT JOIN handling_units h ON h.id = f.hu_id LEFT JOIN deliveries d ON d.id = f.delivery_id WHERE h.project_id = ? OR d.project_id = ?').get(p.id, p.id).n,
+      // Lieferungen mit Warenausgang: bereits an SAP gemeldet, Bilder gelten als Nachweis
+      goods_issue: n("SELECT COUNT(*) AS n FROM deliveries WHERE project_id = ? AND status IN ('VERLADEN', 'AUSGELIEFERT')"),
+    };
+  }
+
+  /**
+   * Projekt mit allem, was dazugehört, löschen (Packvorrat, PSP-Elemente, Packstücke, Lieferungen, Ladepläne, Bilder,
+   * Verlauf). confirm muss die Projektnummer sein. Projekte mit Warenausgang nur mit allowShipped (Administrator).
+   */
+  function deleteProject(user, id, { confirm, allowShipped = false } = {}) {
+    let files = [];
+    const res = mutate(() => {
+      const info = projectDeleteInfo(id);
+      if (str(confirm, 40) !== info.number) throw bad('Zur Bestätigung bitte die Projektnummer exakt eingeben.');
+      if (info.goods_issue && !allowShipped) {
+        throw new U.AppError(403, `Projekt ${info.number} enthält ${info.goods_issue} Lieferung(en) mit Warenausgang. Solche Projekte kann nur ein Administrator löschen.`);
+      }
+      const pid = info.id;
+      const hus = db.prepare('SELECT hu_number FROM handling_units WHERE project_id = ? ORDER BY id').all(pid).map((x) => x.hu_number);
+      const deliveries = db.prepare('SELECT number FROM deliveries WHERE project_id = ? ORDER BY id').all(pid).map((x) => x.number);
+      const inHus = 'SELECT id FROM handling_units WHERE project_id = ?';
+      const inDeliveries = 'SELECT id FROM deliveries WHERE project_id = ?';
+      files = db.prepare(`SELECT filename FROM photos WHERE hu_id IN (${inHus}) OR delivery_id IN (${inDeliveries})`).all(pid, pid).map((f) => f.filename);
+      // Reihenfolge: erst abhängige Einträge, dann das Projekt
+      db.prepare(`DELETE FROM photos WHERE hu_id IN (${inHus}) OR delivery_id IN (${inDeliveries})`).run(pid, pid);
+      db.prepare('DELETE FROM load_plan_items WHERE plan_id IN (SELECT id FROM load_plans WHERE project_id = ?)').run(pid);
+      db.prepare('DELETE FROM load_plans WHERE project_id = ?').run(pid);
+      db.prepare(`DELETE FROM hu_contents WHERE hu_id IN (${inHus})`).run(pid);
+      db.prepare('UPDATE handling_units SET parent_id = NULL, delivery_id = NULL WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM handling_units WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM deliveries WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM pack_items WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM psp_elements WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM events WHERE project_id = ?').run(pid);
+      db.prepare('DELETE FROM projects WHERE id = ?').run(pid);
+      const summary = `${info.items} Positionen, ${info.hus} Packstücke, ${info.deliveries} Lieferungen, ${info.loadplans} Ladepläne, ${info.photos} Bilder`
+        + (info.goods_issue ? ` – davon ${info.goods_issue} Lieferung(en) mit Warenausgang` : '');
+      log(user, null, 'project', pid, info.number, 'Projekt gelöscht', summary);
+      sap.enqueue('PROJECT_DELETED', { project: info.number, hus, deliveries }, user);
+      return { ok: true, number: info.number, summary };
+    });
+    for (const f of files) {
+      const abs = path.resolve(photosDir, f);
+      if (abs.startsWith(path.resolve(photosDir) + path.sep)) { try { fs.unlinkSync(abs); } catch { /* Datei bereits entfernt */ } }
+    }
+    return res;
+  }
+
   function listPsp(projectId) {
     return db.prepare(`
       SELECT ps.*,
@@ -331,6 +390,21 @@ function createDomain(db, { photosDir, onChange = () => {} } = {}) {
         .run(description, unit, weight, m.material_number);
       log(user, null, 'material', null, m.material_number, 'Material geändert');
       return materialDetail(m.material_number);
+    });
+  }
+
+  /** Material aus dem Stamm entfernen – nur solange es in keinem Packvorrat steht */
+  function deleteMaterial(user, nr) {
+    return mutate(() => {
+      const m = getMaterial(nr);
+      const used = db.prepare(`SELECT p.number FROM pack_items i JOIN projects p ON p.id = i.project_id
+          WHERE i.material_number = ? GROUP BY p.id ORDER BY p.number`).all(m.material_number).map((x) => x.number);
+      if (used.length) {
+        throw bad(`Material ${m.material_number} steht im Packvorrat von ${used.length === 1 ? 'Projekt' : 'den Projekten'} ${used.slice(0, 5).join(', ')}${used.length > 5 ? ' …' : ''} und kann nicht gelöscht werden.`);
+      }
+      db.prepare('DELETE FROM materials WHERE material_number = ?').run(m.material_number);
+      log(user, null, 'material', null, m.material_number, 'Material gelöscht', m.description);
+      return { ok: true };
     });
   }
 
@@ -1910,10 +1984,10 @@ function createDomain(db, { photosDir, onChange = () => {} } = {}) {
   return {
     db, sap, getSetting, setSetting, mutate, log, getDeliveryRaw, getHuRaw,
     // Projekte
-    listProjects, getProject, getProjectDetail, createProject, updateProject, projectSummary,
+    listProjects, getProject, getProjectDetail, createProject, updateProject, projectSummary, projectDeleteInfo, deleteProject,
     listPsp, createPsp, updatePsp, deletePsp,
     // Material
-    listMaterials, materialDetail, createMaterial, updateMaterial, addBarcode, removeBarcode, importMaterials, resolveCode,
+    listMaterials, materialDetail, createMaterial, updateMaterial, deleteMaterial, addBarcode, removeBarcode, importMaterials, resolveCode,
     // Packvorrat
     listItems, getItem, createItem, updateItem, deleteItem, setItemsBaseStatus, reportMissing, importItems, shortages,
     // HUs

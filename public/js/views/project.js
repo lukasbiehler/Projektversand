@@ -1,6 +1,6 @@
 // Projekt-Cockpit: Übersicht, Packvorrat, Packstücke (HUs), Lieferungen, Fehlteile/Nachlieferungen, Verlauf, Stammdaten
 import {
-  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, openCode, setScanHandler, optionList, showError, notifyChanged, can,
+  h, get, post, put, del, state, btn, chip, fmt, toast, modal, formDialog, confirmDialog, go, openCode, setScanHandler, optionList, showError, notifyChanged, can,
 } from '../core.js';
 import { openLabelDialog } from '../labels.js';
 import { openImportWizard } from '../importer.js';
@@ -495,10 +495,49 @@ async function renderMaster(p) {
         }, { cls: 'small ghost danger', disabled: x.item_count > 0 || x.hu_count > 0 })))))));
 
   return h('div', { class: 'grid-2' },
-    panel('Projektdaten', form),
+    h('div', { class: 'stack', style: { gap: '18px' } },
+      panel('Projektdaten', form),
+      can('plan') && panel('Projekt löschen',
+        h('p', { class: 'hint' }, 'Entfernt das Projekt mit Packvorrat, PSP-Elementen, Packstücken, Lieferungen, Ladeplänen, Bildern und Verlauf. Das lässt sich nicht rückgängig machen.'),
+        h('div', { class: 'row' }, btn('Projekt löschen …', () => deleteProjectDialog(p), { cls: 'danger', icon: 'trash' })))),
     h('section', { class: 'panel' },
       h('div', { class: 'panel-head' }, h('h2', null, `PSP-Elemente (${p.psp.length})`), can('plan') && btn('PSP-Element anlegen', () => pspDialog(p), { icon: 'plus' })),
       h('div', { class: 'panel-body flush' }, p.psp.length ? pspTable : h('div', { class: 'empty' }, 'PSP-Elemente werden beim Import automatisch angelegt.'))));
+}
+
+/** Rückfrage mit Umfang des Projekts; gelöscht wird erst nach Eingabe der Projektnummer */
+async function deleteProjectDialog(p) {
+  let info;
+  try { info = await get(`/projects/${p.id}/delete-info`); } catch (err) { showError(err); return; }
+  const blocked = info.goods_issue > 0 && !can('admin');
+  const input = h('input', { id: 'pd-confirm', autocomplete: 'off', spellcheck: 'false', placeholder: info.number, 'aria-label': 'Projektnummer zur Bestätigung' });
+  const counts = [
+    [info.items, 'Positionen im Packvorrat'], [info.hus, 'Packstücke'], [info.deliveries, 'Lieferungen'],
+    [info.loadplans, 'Ladepläne'], [info.photos, 'Bilder'],
+  ];
+  const m = modal({
+    title: `Projekt ${info.number} löschen`,
+    body: [
+      h('p', null, 'Mit dem Projekt werden endgültig gelöscht:'),
+      h('dl', { class: 'kv' }, counts.map(([n, label]) => [h('dt', null, label), h('dd', null, h('b', null, String(n)))])),
+      h('p', { class: 'hint' }, 'Dazu die PSP-Elemente und der Verlauf des Projekts. Der Materialstamm bleibt erhalten.'),
+      info.goods_issue ? h('p', { class: 'notice bad' },
+        `${info.goods_issue} Lieferung(en) haben bereits den Warenausgang. Die Verladenachweise (Bilder, Zeiten, Kennzeichen) gehen verloren, an SAP gemeldete Buchungen werden dort nicht zurückgenommen.`,
+        blocked ? ' Solche Projekte kann nur ein Administrator löschen.' : '') : null,
+      blocked ? null : h('label', { class: 'field wide' }, `Zur Bestätigung die Projektnummer „${info.number}“ eingeben`, input),
+    ],
+    actions: [
+      { label: 'Abbrechen', cls: blocked ? 'primary' : '' },
+      blocked ? null : { label: 'Endgültig löschen', cls: 'danger', icon: 'trash', onClick: async (close) => {
+        if (input.value.trim() !== info.number) { input.focus(); throw new Error('Die eingegebene Projektnummer stimmt nicht.'); }
+        await del(`/projects/${p.id}?confirm=${encodeURIComponent(info.number)}`);
+        close();
+        toast(`Projekt ${info.number} gelöscht.`, 'ok');
+        go('#/');
+      } },
+    ].filter(Boolean),
+  });
+  return m;
 }
 
 function pspDialog(p, x) {

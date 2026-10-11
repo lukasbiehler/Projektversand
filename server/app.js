@@ -98,6 +98,7 @@ function createApp({ dataDir, db: existingDb, demo = false, auth: useAuth = !dem
     api.get('/users', h(() => auth.listUsers()));
     api.post('/users', h((req) => auth.createUser(req)));
     api.put('/users/:id', h((req) => auth.updateUser(req, id(req))));
+    api.delete('/users/:id', h((req) => auth.deleteUser(req, id(req))));
     api.get('/api-tokens', h(() => auth.listTokens()));
     api.post('/api-tokens', h((req) => auth.createToken(req)));
     api.delete('/api-tokens/:id', h((req) => auth.deleteToken(req, id(req))));
@@ -157,6 +158,13 @@ function createApp({ dataDir, db: existingDb, demo = false, auth: useAuth = !dem
   api.post('/projects', h((req) => domain.createProject(req.user, req.body || {})));
   api.get('/projects/:id', h((req) => domain.getProjectDetail(id(req))));
   api.put('/projects/:id', h((req) => domain.updateProject(req.user, id(req), req.body || {})));
+  api.get('/projects/:id/delete-info', h((req) => domain.projectDeleteInfo(id(req))));
+  api.delete('/projects/:id', h((req) => {
+    // Projekte mit Warenausgang darf nur ein Administrator löschen (ohne Anmeldung, also in der Demo, jeder)
+    const r = domain.deleteProject(req.user, id(req), { confirm: req.query.confirm, allowShipped: !auth || auth.can(req.principal, 'admin') });
+    if (auth) auth.audit(req, req.principal.username || req.principal.name, 'PROJEKT_GELOESCHT', r.number, r.summary);
+    return r;
+  }));
   api.get('/projects/:id/psp', h((req) => domain.listPsp(id(req))));
   api.post('/projects/:id/psp', h((req) => domain.createPsp(req.user, id(req), req.body || {})));
   api.put('/psp/:id', h((req) => domain.updatePsp(req.user, id(req), req.body || {})));
@@ -179,6 +187,7 @@ function createApp({ dataDir, db: existingDb, demo = false, auth: useAuth = !dem
   api.post('/materials/import', h((req) => domain.importMaterials(req.user, req.body || {})));
   api.get('/materials/:nr', h((req) => domain.materialDetail(req.params.nr)));
   api.put('/materials/:nr', h((req) => domain.updateMaterial(req.user, req.params.nr, req.body || {})));
+  api.delete('/materials/:nr', h((req) => domain.deleteMaterial(req.user, req.params.nr)));
   api.post('/materials/:nr/barcodes', h((req) => domain.addBarcode(req.user, req.params.nr, req.body || {})));
   api.delete('/barcodes/:code', h((req) => domain.removeBarcode(req.user, req.params.code)));
   api.get('/resolve', h((req) => domain.resolveCode(req.query.code, optId(req.query.project_id))));

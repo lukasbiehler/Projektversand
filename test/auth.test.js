@@ -168,6 +168,53 @@ test('Rollen: jede Rolle darf genau ihre Aufgaben', async () => {
   }
 });
 
+test('Projekt löschen: Disposition ja, mit Warenausgang nur Administratoren', async () => {
+  const mk = async (number) => (await admin('POST', '/api/projects', { number })).data;
+  const del = (c, p, confirm = p.number) => c('DELETE', `/api/projects/${p.id}?confirm=${encodeURIComponent(confirm)}`);
+  const plain = await mk('P-LEER');
+  assert.equal((await del(users.VERPACKER, plain)).status, 403);
+  assert.equal((await del(users.DISPONENT, plain, 'falsch')).status, 400);
+  assert.equal((await del(users.DISPONENT, plain)).status, 200);
+
+  // Projekt mit Warenausgang aufbauen
+  const p = await mk('P-VERSENDET');
+  await admin('POST', '/api/materials', { material_number: 'M-V1', description: 'Teil', weight_kg: 2 });
+  await admin('POST', `/api/projects/${p.id}/items`, { material_number: 'M-V1', qty_required: 1 });
+  const hu = (await admin('POST', `/api/projects/${p.id}/hus`, { packaging_type: 'KISTE', length_cm: 80, width_cm: 60, height_cm: 40, tare_kg: 5 })).data;
+  for (const [url, body] of [[`/api/hus/${hu.id}/pack`, { code: 'M-V1', qty: 1 }], [`/api/hus/${hu.id}/action`, { action: 'close' }], [`/api/hus/${hu.id}/action`, { action: 'ready' }]]) {
+    const r = await admin('POST', url, body);
+    assert.equal(r.status, 200, `${url} ${JSON.stringify(r.data)}`);
+  }
+  const d = (await admin('POST', `/api/projects/${p.id}/deliveries`, { truck_plate: 'HH-T 1' })).data;
+  assert.equal((await admin('POST', `/api/deliveries/${d.id}/load`, { hu_id: hu.id })).status, 200);
+  const gi = await admin('POST', `/api/deliveries/${d.id}/action`, { action: 'complete' });
+  assert.equal(gi.status, 200, JSON.stringify(gi.data));
+
+  const info = (await users.DISPONENT('GET', `/api/projects/${p.id}/delete-info`)).data;
+  assert.equal(info.goods_issue, 1);
+  const denied = await del(users.DISPONENT, p);
+  assert.equal(denied.status, 403);
+  assert.match(denied.data.error, /nur ein Administrator/);
+  assert.equal((await admin('GET', `/api/projects/${p.id}`)).status, 200, 'Projekt ist noch da');
+  assert.equal((await del(admin, p)).status, 200);
+  assert.equal((await admin('GET', `/api/projects/${p.id}`)).status, 404);
+  const log = (await admin('GET', '/api/auth-log?limit=20')).data.filter((x) => x.action === 'PROJEKT_GELOESCHT');
+  assert.deepEqual(log.map((x) => [x.actor, x.target]), [['chef', 'P-VERSENDET'], ['dora', 'P-LEER']]);
+});
+
+test('Benutzer löschen: nur Konten, mit denen sich noch niemand angemeldet hat', async () => {
+  const neu = (await admin('POST', '/api/users', { username: 'tippfehler', role: 'LESER', password: PW })).data;
+  const list = (await admin('GET', '/api/users')).data.users;
+  const id = (name) => list.find((u) => u.username === name).id;
+  let r = await admin('DELETE', `/api/users/${id('paul')}`);
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /gesperrt/);
+  assert.equal((await admin('DELETE', `/api/users/${id('chef')}`)).status, 400);
+  assert.equal((await users.DISPONENT('DELETE', `/api/users/${neu.id}`)).status, 403);
+  assert.equal((await admin('DELETE', `/api/users/${neu.id}`)).status, 200);
+  assert.equal((await client()('POST', '/api/auth/login', { username: 'tippfehler', password: PW })).status, 401);
+});
+
 test('Alle Schnittstellen sind abgesichert: Nur-Lesen-Konto kann nichts ändern', async () => {
   // Sämtliche registrierten Routen der API durchgehen – neue Routen sind damit automatisch mitgeprüft
   const routes = [];
@@ -316,7 +363,7 @@ test('Sicherheitsprotokoll hält Anmeldungen, Fehlversuche und Kontoänderungen 
   const log = (await users.ADMIN2('GET', '/api/auth-log?limit=500')).data;
   const actions = new Set(log.map((x) => x.action));
   for (const a of ['EINRICHTUNG', 'EINRICHTUNG_ABGELEHNT', 'ANMELDUNG', 'ANMELDUNG_FEHLGESCHLAGEN', 'ABMELDUNG', 'PASSWORT_GEAENDERT', 'BENUTZER_ANGELEGT',
-    'BENUTZER_GEAENDERT', 'ZUGRIFF_VERWEIGERT', 'SCHLUESSEL_ANGELEGT', 'SCHLUESSEL_WIDERRUFEN']) assert.ok(actions.has(a), a);
+    'BENUTZER_GEAENDERT', 'BENUTZER_GELOESCHT', 'PROJEKT_GELOESCHT', 'ZUGRIFF_VERWEIGERT', 'SCHLUESSEL_ANGELEGT', 'SCHLUESSEL_WIDERRUFEN']) assert.ok(actions.has(a), a);
   assert.ok(!JSON.stringify(log).includes(PW), 'keine Passwörter im Protokoll');
   const change = log.find((x) => x.action === 'BENUTZER_GEAENDERT' && x.target === 'paul');
   assert.match(change.details, /Rolle: Verpackung → Nur lesen/);

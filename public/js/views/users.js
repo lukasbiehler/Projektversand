@@ -4,7 +4,7 @@ import { h, get, post, put, del, btn, fmt, toast, modal, formDialog, confirmDial
 const LOG_LABELS = {
   ANMELDUNG: 'Anmeldung', ANMELDUNG_FEHLGESCHLAGEN: 'Anmeldung fehlgeschlagen', ABMELDUNG: 'Abmeldung', EINRICHTUNG: 'Ersteinrichtung',
   EINRICHTUNG_ABGELEHNT: 'Einrichtung abgelehnt (falscher Code)', PASSWORT_GEAENDERT: 'Passwort geändert', BENUTZER_ANGELEGT: 'Benutzer angelegt',
-  BENUTZER_GEAENDERT: 'Benutzer geändert', ZUGRIFF_VERWEIGERT: 'Zugriff verweigert', SCHLUESSEL_ANGELEGT: 'Zugriffsschlüssel angelegt',
+  BENUTZER_GEAENDERT: 'Benutzer geändert', BENUTZER_GELOESCHT: 'Benutzer gelöscht', PROJEKT_GELOESCHT: 'Projekt gelöscht', ZUGRIFF_VERWEIGERT: 'Zugriff verweigert', SCHLUESSEL_ANGELEGT: 'Zugriffsschlüssel angelegt',
   SCHLUESSEL_WIDERRUFEN: 'Zugriffsschlüssel widerrufen',
 };
 const LOG_ALERT = new Set(['ANMELDUNG_FEHLGESCHLAGEN', 'EINRICHTUNG_ABGELEHNT', 'ZUGRIFF_VERWEIGERT']);
@@ -54,6 +54,10 @@ export async function render(ctx) {
     if (!active && !(await confirmDialog(`${u.display_name} (${u.username}) sperren? Die Person wird sofort abgemeldet. Ihre Buchungen bleiben im Protokoll erhalten.`, { ok: 'Sperren', danger: true }))) return;
     try { await put(`/users/${u.id}`, { active }); toast(active ? 'Konto entsperrt.' : 'Konto gesperrt.', 'ok'); notifyChanged(); } catch (err) { showError(err); }
   };
+  const removeUser = async (u) => {
+    if (!(await confirmDialog(`Konto ${u.username} (${u.display_name}) löschen? Es wurde noch nie verwendet.`, { ok: 'Löschen', danger: true }))) return;
+    try { await del(`/users/${u.id}`); toast('Konto gelöscht.', 'ok'); notifyChanged(); } catch (err) { showError(err); }
+  };
   const userPanel = h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, `Benutzer (${data.users.filter((u) => u.active).length} aktiv)`), btn('Benutzer anlegen', createUser, { icon: 'plus', cls: 'primary' })),
     h('div', { class: 'panel-body flush' }, h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
@@ -67,8 +71,9 @@ export async function render(ctx) {
         h('td', { class: 'nowrap' },
           btn('Bearbeiten', () => editUser(u), { cls: 'small ghost' }),
           btn('Passwort zurücksetzen', () => resetPassword(u), { cls: 'small ghost' }),
-          u.id === me.id ? null : u.active ? btn('Sperren', () => setActive(u, false), { cls: 'small ghost danger' }) : btn('Entsperren', () => setActive(u, true), { cls: 'small ghost' }))))))),
-    h('div', { class: 'panel-body' }, h('p', { class: 'hint' }, 'Konten werden nicht gelöscht, sondern gesperrt – so bleibt nachvollziehbar, wer was gebucht hat.'))));
+          u.id === me.id ? null : u.active ? btn('Sperren', () => setActive(u, false), { cls: 'small ghost danger' }) : btn('Entsperren', () => setActive(u, true), { cls: 'small ghost' }),
+          u.id !== me.id && !u.last_login_at ? btn('Löschen', () => removeUser(u), { cls: 'small ghost danger' }) : null)))))),
+    h('div', { class: 'panel-body' }, h('p', { class: 'hint' }, 'Löschen lässt sich ein Konto nur, solange sich damit noch niemand angemeldet hat. Benutzte Konten werden gesperrt – so bleibt nachvollziehbar, wer was gebucht hat.'))));
 
   // ---------------------------------------------------------------- Rollen und Rechte
   const roles = Object.keys(data.roles);

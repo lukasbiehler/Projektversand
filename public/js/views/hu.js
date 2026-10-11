@@ -37,8 +37,24 @@ export async function render(ctx) {
   if (mayPack && !hu.parent_id && hu.pack_status === 'ABGESCHLOSSEN' && hu.ship_status === 'OFFEN') add(btn('Versandbereit melden', () => act('ready', 'Packstück ist versandbereit.'), { cls: 'ok', icon: 'truck' }));
   if (mayPack && !hu.parent_id && hu.ship_status === 'VERSANDBEREIT') add(btn('Versandbereitschaft zurücknehmen', () => act('unready', 'Versandbereitschaft zurückgenommen.')));
   add(btn('Etikett drucken', () => openLabelDialog([{ kind: 'hu', hu_id: hu.id }], { title: `Etikett ${hu.package_number}` }), { icon: 'print' }));
-  if (mayPack && hu.pack_status === 'ANGELEGT' && hu.ship_status === 'OFFEN' && !d.photos.some((p) => p.hu_id === hu.id)) {
+  if (mayPack && ['OFFEN', 'VERSANDBEREIT'].includes(hu.ship_status)) {
     add(btn('Löschen', async () => {
+      // Gelöscht wird nur ein leeres, offenes Packstück – sonst sagen, was vorher zu tun ist
+      const todo = [
+        hu.ship_status === 'VERSANDBEREIT' ? (hu.parent_id ? 'das äußere Packstück: Versandbereitschaft zurücknehmen' : 'Versandbereitschaft zurücknehmen') : null,
+        hu.pack_status === 'ABGESCHLOSSEN' ? 'Verpackung mit „Wieder öffnen“ öffnen' : null,
+        d.contents.length ? `${d.contents.length} Position(en) unter „Inhalt“ entnehmen` : null,
+        d.children.length ? `${d.children.length} enthaltene(s) Packstück(e) herausnehmen` : null,
+        d.photos.some((p) => p.hu_id === hu.id) ? 'Bilder des Packstücks löschen' : null,
+      ].filter(Boolean);
+      if (todo.length) {
+        modal({
+          title: `${hu.package_number} kann noch nicht gelöscht werden`,
+          body: [h('p', null, 'Gelöscht werden nur leere, offene Packstücke. Vorher bitte:'), h('ul', null, todo.map((t) => h('li', null, t)))],
+          actions: [{ label: 'Schließen', cls: 'primary' }],
+        });
+        return;
+      }
       if (!(await confirmDialog(`Leeres Packstück ${hu.package_number} löschen?`, { ok: 'Löschen', danger: true }))) return;
       try { await del(`/hus/${hu.id}`); toast('Packstück gelöscht.', 'ok'); go(`#/p/${hu.project_id}/hus`); } catch (err) { showError(err); }
     }, { cls: 'danger', icon: 'trash' }));

@@ -524,3 +524,43 @@ test('Barcode-Muster (regulärer Ausdruck) für zusammengesetzte Etiketten', asy
   assert.equal(r.material_number, '100002');
   await ok('PUT', '/settings', { barcode_regex: '' });
 });
+
+test('Löschen: Material nur ohne Verwendung, Projekt mit allem, was dazugehört', async () => {
+  // Material: in Verwendung → geschützt; unbenutzt → samt Barcodes entfernt
+  await fails('DELETE', '/materials/100001', undefined, 400, /Packvorrat/);
+  await ok('POST', '/materials', { material_number: 'M-WEG', description: 'Versehentlich angelegt' });
+  await ok('POST', '/materials/M-WEG/barcodes', { barcode: 'WEG-0001' });
+  await ok('DELETE', '/materials/M-WEG');
+  await fails('GET', '/materials/M-WEG', undefined, 404);
+  assert.equal((await ok('GET', '/resolve?code=WEG-0001')).kind, 'unknown');
+
+  // Projekt: Umfang abfragen, Bestätigung über die Projektnummer
+  const info = await ok('GET', `/projects/${S.pid}/delete-info`);
+  assert.ok(info.items > 0 && info.hus > 0 && info.deliveries > 0 && info.photos > 0, JSON.stringify(info));
+  assert.ok(info.goods_issue > 0, 'Projekt hat Lieferungen mit Warenausgang');
+  const number = info.number;
+  await fails('DELETE', `/projects/${S.pid}`, undefined, 400, /Projektnummer/);
+  await fails('DELETE', `/projects/${S.pid}?confirm=FALSCH`, undefined, 400, /Projektnummer/);
+  const photoFiles = () => fs.readdirSync(path.join(dataDir, 'photos'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).length;
+  assert.ok(photoFiles() > 0);
+  const others = (await ok('GET', '/projects')).filter((p) => p.id !== S.pid).map((p) => p.number);
+  const r = await ok('DELETE', `/projects/${S.pid}?confirm=${encodeURIComponent(number)}`);
+  assert.match(r.summary, /Positionen, \d+ Packstücke/);
+
+  await fails('GET', `/projects/${S.pid}`, undefined, 404);
+  assert.deepEqual((await ok('GET', '/projects')).map((p) => p.number), others, 'andere Projekte bleiben unberührt');
+  for (const t of ['pack_items', 'psp_elements', 'handling_units', 'deliveries', 'load_plans']) {
+    assert.equal(ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE project_id = ?`).get(S.pid).n, 0, t);
+  }
+  assert.equal(ctx.db.prepare('SELECT COUNT(*) AS n FROM hu_contents WHERE hu_id NOT IN (SELECT id FROM handling_units)').get().n, 0);
+  assert.equal(ctx.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE hu_id NOT IN (SELECT id FROM handling_units)').get().n, 0);
+  assert.equal(photoFiles(), 0, 'Bilddateien sind entfernt');
+  assert.equal(ctx.db.prepare('SELECT COUNT(*) AS n FROM events WHERE project_id = ?').get(S.pid).n, 0);
+  const ev = ctx.db.prepare("SELECT * FROM events WHERE action = 'Projekt gelöscht'").get();
+  assert.equal(ev.ref, number);
+  assert.equal(ev.user, 'Test Prüfer');
+  const msg = ctx.db.prepare("SELECT payload FROM sap_outbox WHERE type = 'PROJECT_DELETED'").get();
+  assert.ok(JSON.parse(msg.payload).hus.length > 0, 'SAP erfährt, welche Handling Units entfallen');
+  // Nummer ist wieder frei, Material ohne Verwendung löschbar
+  await ok('POST', '/projects', { number });
+});

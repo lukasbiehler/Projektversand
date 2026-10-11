@@ -1,6 +1,6 @@
 // Lieferung / Verladung: Packstücke per Scan verladen, Ladungsfotos, Warenausgang, Zustellung, Packliste
 import {
-  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, setScanHandler, optionList, showError, feedback, notifyChanged, can,
+  h, get, post, put, del, state, btn, chip, fmt, toast, modal, formDialog, confirmDialog, go, setScanHandler, optionList, showError, feedback, notifyChanged, can,
 } from '../core.js';
 import { scanField } from '../scanner.js';
 import { openLabelDialog, printNodes } from '../labels.js';
@@ -50,7 +50,20 @@ export async function render(ctx) {
   }
   add(btn('Packliste drucken', () => printPackingList(d), { icon: 'print' }));
   if (d.hus.length) add(btn('Etiketten aller Packstücke', () => openLabelDialog(d.hus.map((x) => ({ kind: 'hu', hu_id: x.id }))), { icon: 'print' }));
-  if (mayLoad && dl.status === 'GEPLANT' && !d.hus.length && !d.photos.length) add(btn('Löschen', async () => {
+  if (mayLoad && loading) add(btn('Löschen', async () => {
+    // Gelöscht wird nur eine leere Lieferung – sonst sagen, was vorher zu tun ist
+    const todo = [
+      d.hus.length ? `${d.hus.length} Packstück(e) unter „Verladene Packstücke“ entladen` : null,
+      d.photos.length ? `${d.photos.length} Bild(er) der Verladedokumentation löschen` : null,
+    ].filter(Boolean);
+    if (todo.length) {
+      modal({
+        title: `${dl.number} kann noch nicht gelöscht werden`,
+        body: [h('p', null, 'Gelöscht werden nur Lieferungen ohne Packstücke und Bilder. Vorher bitte:'), h('ul', null, todo.map((t) => h('li', null, t)))],
+        actions: [{ label: 'Schließen', cls: 'primary' }],
+      });
+      return;
+    }
     if (!(await confirmDialog(`Lieferung ${dl.number} löschen?`, { ok: 'Löschen', danger: true }))) return;
     try { await del(`/deliveries/${dl.id}`); toast('Lieferung gelöscht.', 'ok'); go(`#/p/${dl.project_id}/deliveries`); } catch (err) { showError(err); }
   }, { cls: 'danger', icon: 'trash' }));

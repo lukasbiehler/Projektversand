@@ -40,8 +40,26 @@ Optionen: `--port 9000`, `--data D:\Versanddaten`.
 
 Eine Schritt-für-Schritt-Testanleitung mit Beispieldaten steht in [docs/TESTANLEITUNG.md](docs/TESTANLEITUNG.md).
 
-Tests: `npm test` (64 Tests: Geschäftsregeln, Schnittstellen, Anmeldung und Rechte sowie Beladungsalgorithmus mit
+Tests: `npm test` (67 Tests: Geschäftsregeln, Schnittstellen, Anmeldung und Rechte sowie Beladungsalgorithmus mit
 unabhängiger Regelprüfung).
+
+## Löschen
+
+Alles, was sich anlegen lässt, lässt sich wieder entfernen – mit Schutz dort, wo sonst Nachweise verloren gingen:
+
+| Was | Wo | Bedingung |
+|---|---|---|
+| Projekt | Projekt → **Stammdaten** → **Projekt löschen** | Bestätigung durch Eingabe der Projektnummer. Entfernt Packvorrat, PSP-Elemente, Packstücke, Lieferungen, Ladepläne, Bilder und Verlauf. Projekte mit Warenausgang löscht nur ein Administrator. |
+| Position im Packvorrat, PSP-Element | Packvorrat bzw. Stammdaten | solange nichts davon verpackt ist bzw. es nicht verwendet wird |
+| Packstück | Packstück → **Löschen** | leer und offen; sonst nennt die App die nötigen Schritte (öffnen, Inhalt entnehmen, Bilder löschen) |
+| Lieferung | Lieferung → **Löschen** | ohne Packstücke und Bilder, vor dem Warenausgang; sonst nennt die App die nötigen Schritte |
+| Bild | Bild öffnen → **Löschen** | vor dem Warenausgang (danach Nachweis) |
+| Material | Materialstamm → Material → **Löschen** | steht in keinem Packvorrat |
+| Ladeplan, Ladegut, Fahrzeugtyp, Drucker, Barcode, Zugriffsschlüssel | jeweils in der Liste | jederzeit |
+| Benutzerkonto | **Benutzer** → **Löschen** | nur solange sich damit niemand angemeldet hat; benutzte Konten werden gesperrt |
+
+Das Löschen eines Projekts steht im Protokoll und im Sicherheitsprotokoll; an SAP geht die Nachricht `PROJECT_DELETED`
+mit den betroffenen Handling Units und Lieferungen.
 
 ## Anmeldung und Rollen
 
@@ -78,7 +96,8 @@ eigene Regel automatisch Administratoren vorbehalten.
   fremde Seiten einbetten.
 - Protokoll: Buchungen tragen den Namen des angemeldeten Kontos. Anmeldungen, Fehlversuche, verweigerte Zugriffe und
   Änderungen an Konten stehen im Sicherheitsprotokoll (**Benutzer** → unten).
-- Konten werden nicht gelöscht, sondern gesperrt, damit das Protokoll nachvollziehbar bleibt.
+- Benutzte Konten werden nicht gelöscht, sondern gesperrt, damit das Protokoll nachvollziehbar bleibt. Löschen lässt
+  sich nur ein Konto, mit dem sich noch niemand angemeldet hat.
 
 **Fremdsysteme (z. B. SAP):** Für die Eingangsschnittstellen `/api/integration/…` legt der Administrator unter
 **Benutzer** einen Zugriffsschlüssel an. Er wird einmal angezeigt, gespeichert wird nur ein Prüfwert. Das Fremdsystem
