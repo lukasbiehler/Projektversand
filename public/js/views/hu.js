@@ -1,7 +1,7 @@
 // Packstück / Handling Unit: scannergestütztes Verpacken, mehrstufige Verpackung, Daten, Status, Bilder, Etikett, Verlauf
 import {
   h, get, post, put, del, state, btn, chip, fmt, toast, modal, formDialog, confirmDialog, go, openCode, setScanHandler, optionList,
-  showError, feedback, notifyChanged, ApiError,
+  showError, feedback, notifyChanged, ApiError, can,
 } from '../core.js';
 import { scanField } from '../scanner.js';
 import { openLabelDialog } from '../labels.js';
@@ -16,7 +16,9 @@ export async function render(ctx) {
   const { hu, project } = d;
   ctx.projectId = hu.project_id;
   const meta = state.meta;
-  const packable = hu.pack_status !== 'ABGESCHLOSSEN' && hu.ship_status === 'OFFEN';
+  const mayPack = can('pack');
+  const open = hu.pack_status !== 'ABGESCHLOSSEN' && hu.ship_status === 'OFFEN';
+  const packable = open && mayPack;
   if (lastResult && lastResult.huId !== hu.id) lastResult = null;
 
   const act = async (action, msg) => {
@@ -31,11 +33,11 @@ export async function render(ctx) {
   const actions = h('div', { class: 'row' });
   const add = (el) => actions.append(el);
   if (packable) add(btn('Verpackung abschließen', () => act('close', 'Verpackung abgeschlossen.'), { cls: hu.pack_status === 'BEGONNEN' ? 'primary' : '', icon: 'check', disabled: hu.pack_status !== 'BEGONNEN' }));
-  if (hu.pack_status === 'ABGESCHLOSSEN' && ['OFFEN', 'VERSANDBEREIT'].includes(hu.ship_status)) add(btn('Wieder öffnen', () => act('reopen', 'Packstück wieder geöffnet.')));
-  if (!hu.parent_id && hu.pack_status === 'ABGESCHLOSSEN' && hu.ship_status === 'OFFEN') add(btn('Versandbereit melden', () => act('ready', 'Packstück ist versandbereit.'), { cls: 'ok', icon: 'truck' }));
-  if (!hu.parent_id && hu.ship_status === 'VERSANDBEREIT') add(btn('Versandbereitschaft zurücknehmen', () => act('unready', 'Versandbereitschaft zurückgenommen.')));
+  if (mayPack && hu.pack_status === 'ABGESCHLOSSEN' && ['OFFEN', 'VERSANDBEREIT'].includes(hu.ship_status)) add(btn('Wieder öffnen', () => act('reopen', 'Packstück wieder geöffnet.')));
+  if (mayPack && !hu.parent_id && hu.pack_status === 'ABGESCHLOSSEN' && hu.ship_status === 'OFFEN') add(btn('Versandbereit melden', () => act('ready', 'Packstück ist versandbereit.'), { cls: 'ok', icon: 'truck' }));
+  if (mayPack && !hu.parent_id && hu.ship_status === 'VERSANDBEREIT') add(btn('Versandbereitschaft zurücknehmen', () => act('unready', 'Versandbereitschaft zurückgenommen.')));
   add(btn('Etikett drucken', () => openLabelDialog([{ kind: 'hu', hu_id: hu.id }], { title: `Etikett ${hu.package_number}` }), { icon: 'print' }));
-  if (hu.pack_status === 'ANGELEGT' && hu.ship_status === 'OFFEN' && !d.photos.some((p) => p.hu_id === hu.id)) {
+  if (mayPack && hu.pack_status === 'ANGELEGT' && hu.ship_status === 'OFFEN' && !d.photos.some((p) => p.hu_id === hu.id)) {
     add(btn('Löschen', async () => {
       if (!(await confirmDialog(`Leeres Packstück ${hu.package_number} löschen?`, { ok: 'Löschen', danger: true }))) return;
       try { await del(`/hus/${hu.id}`); toast('Packstück gelöscht.', 'ok'); go(`#/p/${hu.project_id}/hus`); } catch (err) { showError(err); }
@@ -60,7 +62,7 @@ export async function render(ctx) {
         hu.delivery_number ? h('div', { class: 'path' }, 'Lieferung: ', h('a', { href: `#/d/${hu.delivery_id}`, class: 'mono' }, hu.delivery_number),
           ` · ${hu.delivery_kind_label}${hu.delivery_truck_plate ? ' · ' + hu.delivery_truck_plate : ''}`) : null),
       actions),
-    readiness.length ? h('p', { class: 'notice warn' }, `Für „Versandbereit“ fehlen noch: ${readiness.join(', ')}. Bitte unten unter „Packstückdaten“ erfassen.`) : null);
+    readiness.length && mayPack ? h('p', { class: 'notice warn' }, `Für „Versandbereit“ fehlen noch: ${readiness.join(', ')}. Bitte unten unter „Packstückdaten“ erfassen.`) : null);
 
   // ---------------------------------------------------------------- Verpacken per Scan
   const qtyInput = h('input', { type: 'number', id: 'pack-qty', min: 0, step: 'any', value: '1', inputmode: 'decimal', 'data-nodirty': '1', style: { maxWidth: '110px' } });
@@ -144,7 +146,8 @@ export async function render(ctx) {
     packPanel = h('section', { class: 'panel' },
       h('div', { class: 'panel-head' }, h('h2', null, 'Verpacken')),
       h('div', { class: 'panel-body' }, h('p', { class: 'notice' },
-        hu.ship_status !== 'OFFEN' ? `Das Packstück ist ${hu.ship_status_label.toLowerCase()} – Inhalt ist gesperrt.` : 'Die Verpackung ist abgeschlossen. Zum Ändern „Wieder öffnen“.'),
+        open ? 'Ihr Konto darf nicht verpacken – Sie sehen dieses Packstück nur zur Ansicht.'
+          : hu.ship_status !== 'OFFEN' ? `Das Packstück ist ${hu.ship_status_label.toLowerCase()} – Inhalt ist gesperrt.` : 'Die Verpackung ist abgeschlossen. Zum Ändern „Wieder öffnen“.'),
       resultBox));
   }
 
@@ -200,7 +203,8 @@ export async function render(ctx) {
       h('input', { type: 'number', name: 'max_top_load_kg', id: 'hu-max_top_load_kg', step: 'any', min: 0, value: hu.max_top_load_kg === null ? '' : String(hu.max_top_load_kg), inputmode: 'decimal' })),
     h('label', { class: 'field wide' }, 'Zielort', h('textarea', { name: 'destination', id: 'hu-destination', value: hu.destination, rows: 2, disabled: frozen })),
     h('label', { class: 'field wide' }, 'Bemerkung', h('textarea', { name: 'note', id: 'hu-note', value: hu.note, rows: 2 })),
-    h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Packstückdaten speichern')));
+    mayPack ? h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Packstückdaten speichern')) : null);
+  if (!mayPack) for (const el of form.elements) el.disabled = true;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -259,10 +263,10 @@ export async function render(ctx) {
       h('div', { class: 'stack', style: { gap: '18px' } },
         h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Packstückdaten')),
           h('div', { class: 'panel-body' }, weights, form)),
-        canMove && hu.packaging_type !== 'CONTAINER' ? h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Mehrstufige Verpackung')),
+        mayPack && canMove && hu.packaging_type !== 'CONTAINER' ? h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Mehrstufige Verpackung')),
           h('div', { class: 'panel-body' }, h('p', { class: 'hint' }, 'In welchem Packstück liegt dieses Packstück (z. B. Palette → Kiste → Container)?'), parentBox)) : null,
         h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Bilddokumentation (${d.photos.length})`)),
-          h('div', { class: 'panel-body' }, photoPanel({ target: { hu_id: hu.id }, phases: ['VERPACKUNG', 'VERLADUNG'], photos: d.photos, onChange: onPhotoChange }))))),
+          h('div', { class: 'panel-body' }, photoPanel({ target: { hu_id: hu.id }, phases: ['VERPACKUNG', 'VERLADUNG'], photos: d.photos, onChange: onPhotoChange, readOnlyReason: mayPack || can('load') ? '' : 'Ihr Konto darf keine Bilder aufnehmen.' }))))),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Verlauf dieses Packstücks')),
       h('div', { class: 'panel-body flush' }, eventsTable(d.events))));
   ctx.show(page);

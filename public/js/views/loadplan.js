@@ -1,7 +1,7 @@
 // Ladeplanung: Laderäume wählen, Ladegut zusammenstellen, optimal beladen, in 3D prüfen, manuell anpassen, Bericht / Excel
 import {
   h, append, get, post, put, del, state, btn, fmt, toast, formDialog, confirmDialog, modal, go, setScanHandler, showError,
-  notifyChanged, onCleanup, loadScript, chip,
+  notifyChanged, onCleanup, loadScript, chip, can,
 } from '../core.js';
 import { loadThree, createViewer, colorFor } from '../viewer3d.js';
 import { openImportWizard } from '../importer.js';
@@ -29,14 +29,14 @@ export async function render(ctx) {
           !res ? h('span', { class: 'chip' }, 'Nicht berechnet') : plan.stale ? h('span', { class: 'chip s-FEHLTEIL' }, 'Veraltet – neu berechnen') : h('span', { class: 'chip s-VERSANDBEREIT' }, 'Berechnet')),
         h('p', { class: 'muted' }, res ? `Berechnet ${fmt.dt(plan.computed_at)}${res.computed_by ? ' von ' + res.computed_by : ''} · Strategie ${res.strategy}` : 'Laderaum wählen, Ladegut hinzufügen und „Optimal beladen“ klicken.')),
       h('div', { class: 'row' },
-        btn('Optimal beladen', () => calculate(plan), { cls: 'primary big', icon: 'truck' }),
+        can('loadplan') && btn('Optimal beladen', () => calculate(plan), { cls: 'primary big', icon: 'truck' }),
         res ? btn('Bericht drucken', () => reportDialog(plan), { icon: 'print' }) : null,
         res ? btn('Excel-Export', () => exportExcel(plan).catch(showError), { icon: 'upload' }) : null,
-        btn('Umbenennen', () => formDialog({
+        can('loadplan') && btn('Umbenennen', () => formDialog({
           title: 'Ladeplan umbenennen', fields: [{ name: 'name', label: 'Bezeichnung', value: plan.name, required: true, autofocus: true }],
           onSubmit: async (v) => { await put(`/loadplans/${plan.id}`, { name: v.name }); },
         }), { cls: 'ghost' }),
-        btn('Löschen', async () => {
+        can('loadplan') && btn('Löschen', async () => {
           if (!(await confirmDialog(`Ladeplan „${plan.name}“ löschen?`, { ok: 'Löschen', danger: true }))) return;
           try { await del(`/loadplans/${plan.id}`); toast('Ladeplan gelöscht.', 'ok'); go(`#/p/${plan.project.id}/loadplans`); } catch (err) { showError(err); }
         }, { cls: 'ghost danger' }))));
@@ -79,6 +79,17 @@ function dimsText(s) {
 }
 
 function spacesPanel(plan, types) {
+  // Ohne Planungsrecht: nur die gewählten Laderäume zeigen
+  if (!can('loadplan')) {
+    return h('section', { class: 'panel' },
+      h('div', { class: 'panel-head' }, h('h2', null, 'Laderäume')),
+      h('div', { class: 'panel-body' },
+        plan.spaces.length ? h('div', { class: 'stack', style: { gap: '6px' } }, plan.spaces.map((s, i) => h('div', { class: 'row lp-space' },
+          h('span', { class: 'tag' }, String(i + 1)),
+          h('div', { style: { flex: '1 1 200px', minWidth: 0 } }, h('b', null, s.name), h('div', { class: 'hint' }, dimsText(s))))))
+          : h('p', { class: 'muted small' }, 'Noch kein Laderaum gewählt.'),
+        h('p', { class: 'hint' }, 'Ihr Konto kann Ladepläne ansehen, aber nicht ändern.')));
+  }
   const save = async (body, msg) => {
     try { await put(`/loadplans/${plan.id}`, body); if (msg) toast(msg, 'ok'); notifyChanged(); } catch (err) { showError(err); }
   };
@@ -138,14 +149,14 @@ function cargoPanel(plan) {
       h('td', { class: 'num' }, i.qty),
       stops.size > 1 || plan.items.some((x) => x.stop > 1) ? h('td', { class: 'num' }, i.stop) : null,
       h('td', { class: 'nowrap' },
-        btn('Bearbeiten', () => itemDialog(plan, i), { cls: 'small ghost' }),
-        btn('Entfernen', async () => {
+        can('loadplan') && btn('Bearbeiten', () => itemDialog(plan, i), { cls: 'small ghost' }),
+        can('loadplan') && btn('Entfernen', async () => {
           try { await del(`/loadplan-items/${i.id}`); notifyChanged(); } catch (err) { showError(err); }
         }, { cls: 'small ghost danger' }))))))) : h('p', { class: 'muted small' }, 'Noch kein Ladegut.');
   return h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, `Ladegut (${count} Teile)`)),
     h('div', { class: 'panel-body' },
-      h('div', { class: 'row' },
+      can('loadplan') && h('div', { class: 'row' },
         btn('Packstücke einplanen', () => huDialog(plan), { icon: 'box', cls: 'primary' }),
         btn('Position', () => itemDialog(plan, null), { icon: 'plus' }),
         btn('Excel-Import', () => openImportWizard({ mode: 'cargo', planId: plan.id, onDone: () => notifyChanged() }), { icon: 'upload' })),
@@ -306,7 +317,7 @@ function resultPanel(plan, u, ctx) {
   const assignBox = h('div', { class: 'stack' },
     assigned ? h('p', null, 'Zugeordnet: ', h('a', { href: `#/d/${assigned.id}`, class: 'mono' }, assigned.number), ` · ${assigned.kind_label} · ${assigned.status_label}${assigned.truck_plate ? ' · ' + assigned.truck_plate : ''}`)
       : h('p', { class: 'hint' }, 'Beim Verladen per Scan zeigt die Lieferung diesen Ladeplan an (Position, Reihenfolge, Fortschritt).'),
-    h('div', { class: 'row' },
+    can('loadplan') && h('div', { class: 'row' },
       h('div', { style: { flex: '1 1 200px' } }, dSel),
       btn('Zuordnen', async () => {
         if (!dSel.value) { toast('Bitte eine Lieferung wählen.', 'warn'); return; }
@@ -385,7 +396,7 @@ function resultPanel(plan, u, ctx) {
       const tsel = h('select', { 'data-nodirty': '1', 'aria-label': 'Ziel-Laderaum' }, res.spaces.map((s, i) => h('option', { value: s.key, selected: i === u.space }, `${i + 1}: ${s.name}`)));
       return h('div', { class: 'row notice warn' },
         h('div', { style: { flex: '1 1 240px' } }, h('b', null, pc.label), ` – ${pc.length_cm} × ${pc.width_cm} × ${pc.height_cm} cm, ${fmt.kg(pc.weight_kg)}`, h('div', { class: 'small' }, x.reason_label)),
-        tsel, btn('Platzieren', () => edit({ action: 'place', piece_id: x.piece_id, space_key: tsel.value }, 'Teil platziert.'), { cls: 'small' }));
+        can('loadplan') && tsel, can('loadplan') && btn('Platzieren', () => edit({ action: 'place', piece_id: x.piece_id, space_key: tsel.value }, 'Teil platziert.'), { cls: 'small' }));
     }),
     res.excluded.map((x) => h('p', { class: 'notice bad' }, h('b', null, x.label), ` – nicht eingeplant: ${x.problems.join(', ')}`))) : null;
 
@@ -404,7 +415,7 @@ function resultPanel(plan, u, ctx) {
       h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Auslastung')), h('div', { class: 'panel-body' }, kpis)),
       h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Gewichtsverteilung')), h('div', { class: 'panel-body' }, distribution))),
     unplacedList ? h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Nicht verladen')), h('div', { class: 'panel-body' }, unplacedList)) : null,
-    h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Manuell anpassen')), h('div', { class: 'panel-body' }, selBox)),
+    can('loadplan') && h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Manuell anpassen')), h('div', { class: 'panel-body' }, selBox)),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Beladereihenfolge (${n})`)), h('div', { class: 'panel-body flush' }, seqTable)),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Lieferung / Verladung')), h('div', { class: 'panel-body' }, assignBox)));
 }

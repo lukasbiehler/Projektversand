@@ -1,5 +1,5 @@
 // Startseite: Projektübersicht
-import { h, get, post, formDialog, btn, openCode, go, setScanHandler, fmt } from '../core.js';
+import { h, get, post, formDialog, btn, openCode, go, setScanHandler, fmt, can } from '../core.js';
 import { scanField } from '../scanner.js';
 
 export async function render(ctx) {
@@ -44,12 +44,12 @@ export async function render(ctx) {
   ctx.show(h('div', { class: 'stack', style: { gap: '18px' } },
     h('div', { class: 'page-head' },
       h('div', { class: 'titles' }, h('h1', null, 'Projekte'), h('p', { class: 'muted' }, 'Packvorrat, Packstücke und Versand je Projekt')),
-      btn('Neues Projekt', newProject, { cls: 'primary', icon: 'plus' })),
+      can('plan') && btn('Neues Projekt', newProject, { cls: 'primary', icon: 'plus' })),
     field,
     projects.length
       ? h('div', { class: 'cards' }, cards)
       : h('div', { class: 'panel' }, h('div', { class: 'empty stack' },
         h('h2', null, 'Noch keine Projekte'),
         h('p', null, 'Legen Sie ein Projekt an und importieren Sie den Packvorrat aus der Excel-Packliste oder dem SAP-Export der PSP-Elemente.'),
-        h('div', { class: 'row', style: { justifyContent: 'center' } }, btn('Neues Projekt', newProject, { cls: 'primary', icon: 'plus' }))))));
+        can('plan') && h('div', { class: 'row', style: { justifyContent: 'center' } }, btn('Neues Projekt', newProject, { cls: 'primary', icon: 'plus' }))))));
 }

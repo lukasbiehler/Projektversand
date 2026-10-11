@@ -23,7 +23,7 @@ const fails = async (m, u, b, status, rx) => { const r = await call(m, u, b); as
 
 test.before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pv-lp-'));
-  ctx = createApp({ dataDir });
+  ctx = createApp({ dataDir, auth: false }); // Fachlogik ohne Anmeldung, siehe auth.test.js
   server = http.createServer(ctx.app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}/api`;

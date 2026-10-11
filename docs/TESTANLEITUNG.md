@@ -23,9 +23,13 @@ Dauer: etwa 45–60 Minuten. Abschnitte, die mit *(optional)* markiert sind, kö
    node server/index.js --data ./data-test
    ```
 
+   *Erwartet:* Die Konsole zeigt am Ende „Einrichtungscode für den Administrator: XXXX-XXXX-XXXX“.
 3. Im Browser `http://localhost:8080` öffnen.
-4. Im Dialog **„Wer arbeitet an diesem Gerät?“** z. B. `Testperson` eingeben → **Übernehmen**.
+   *Erwartet:* Seite **Ersteinrichtung**.
+4. Einrichtungscode aus der Konsole eingeben, Benutzername `testperson`, Name `Testperson`, ein Passwort mit
+   mindestens 10 Zeichen (zweimal) → **Administrator anlegen**.
    *Erwartet:* Oben rechts steht „Testperson“, daneben ein grüner Punkt (Echtzeit-Verbindung aktiv).
+   Weitere Konten und Rollen: siehe Abschnitt 12.
 
 > **Scannen ohne Scanner:** Überall, wo ein Code „gescannt“ wird, können Sie ihn in das Scanfeld tippen und
 > **Enter** drücken – die App verhält sich genau wie bei einem Hardware-Scanner. Mit Scanner (Tastatur-Modus mit
@@ -349,6 +353,26 @@ versandbereit gemeldet wird nur das äußerste Packstück.
   bestätigen). Im Scanfeld das Kamera-Symbol antippen. Ohne HTTPS: Barcode fotografieren und auswerten lassen.
 - **Etikettendrucker:** Einstellungen → Etikettendrucker → IP-Adresse eintragen → **Testdruck**. Danach bietet der
   Etikettendialog **An Drucker senden** an.
+
+## 12 Anmeldung und Rollen
+
+1. Menü **Benutzer** → **Benutzer anlegen**: Benutzername `p.packer`, Name `Paul Packer`, Rolle **Verpackung**,
+   das vorgeschlagene Startpasswort notieren → **Anlegen**.
+   *Erwartet:* Zeile „Paul Packer“ mit Status **Startpasswort**. Die Tabelle **Rollen und Rechte** zeigt, was jede Rolle darf.
+2. Oben rechts auf den eigenen Namen klicken → **Abmelden**. *Erwartet:* Anmeldemaske, das Menü ist ausgeblendet.
+3. Mit `p.packer` und einem falschen Passwort anmelden. *Erwartet:* „Benutzername oder Passwort ist falsch.“
+4. Mit dem Startpasswort anmelden. *Erwartet:* Seite **Eigenes Passwort vergeben**; erst nach dem Speichern eines
+   eigenen Passworts öffnet sich die App.
+5. Als Paul Packer das Projekt öffnen.
+   *Erwartet:* Im Menü fehlen **Einstellungen** und **Benutzer**. Packstücke lassen sich anlegen und verpacken;
+   „Neues Projekt“, der Import des Packvorrats, „Neue Lieferung“ und die Bearbeitung der Ladeplanung fehlen.
+   Auf einer Lieferung sind die Lieferdaten gesperrt, das Scanfeld zum Verladen fehlt.
+6. Ein Packstück scannen bzw. Material verpacken, dann Reiter **Verlauf**. *Erwartet:* Die Buchung steht unter „Paul Packer“.
+7. Abmelden, als Administrator anmelden → **Benutzer** → bei Paul Packer **Sperren**.
+   *Erwartet:* Status „gesperrt“; eine Anmeldung mit diesem Konto ist nicht mehr möglich. Unten im
+   **Sicherheitsprotokoll** stehen Anmeldungen, der Fehlversuch und die Kontoänderungen.
+8. *(optional)* **Schlüssel anlegen** mit Bezeichnung `SAP Test`. *Erwartet:* Der Zugriffsschlüssel wird einmalig
+   angezeigt. Er gilt nur für die Eingangsschnittstellen (`/api/integration/…`).
 
 ---
 

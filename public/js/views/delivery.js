@@ -1,6 +1,6 @@
 // Lieferung / Verladung: Packstücke per Scan verladen, Ladungsfotos, Warenausgang, Zustellung, Packliste
 import {
-  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, setScanHandler, optionList, showError, feedback, notifyChanged,
+  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, setScanHandler, optionList, showError, feedback, notifyChanged, can,
 } from '../core.js';
 import { scanField } from '../scanner.js';
 import { openLabelDialog, printNodes } from '../labels.js';
@@ -16,7 +16,8 @@ export async function render(ctx) {
   const { delivery: dl, project } = d;
   ctx.projectId = dl.project_id;
   const meta = state.meta;
-  const loading = ['GEPLANT', 'IN_VERLADUNG'].includes(dl.status);
+  const mayLoad = can('load');
+  const loading = mayLoad && ['GEPLANT', 'IN_VERLADUNG'].includes(dl.status);
 
   const act = async (action, msg, body = {}) => {
     try { await post(`/deliveries/${dl.id}/action`, { action, ...body }); toast(msg, 'ok'); notifyChanged(); } catch (err) { feedback(false); showError(err); }
@@ -25,11 +26,11 @@ export async function render(ctx) {
   // ---------------------------------------------------------------- Kopf
   const actions = h('div', { class: 'row' });
   const add = (b) => actions.append(b);
-  if (dl.status === 'IN_VERLADUNG') add(btn('Verladung abschließen (Warenausgang)', async () => {
+  if (mayLoad && dl.status === 'IN_VERLADUNG') add(btn('Verladung abschließen (Warenausgang)', async () => {
     if (!(await confirmDialog(`Verladung von ${dl.hu_count} Packstück(en) abschließen und Warenausgang an SAP melden?`, { ok: 'Abschließen' }))) return;
     act('complete', 'Verladung abgeschlossen, Warenausgang gemeldet.');
   }, { cls: 'primary', icon: 'check' }));
-  if (dl.status === 'VERLADEN') {
+  if (mayLoad && dl.status === 'VERLADEN') {
     add(btn('Zustellung bestätigen', () => formDialog({
       title: 'Zustellung bestätigen',
       fields: [
@@ -49,7 +50,7 @@ export async function render(ctx) {
   }
   add(btn('Packliste drucken', () => printPackingList(d), { icon: 'print' }));
   if (d.hus.length) add(btn('Etiketten aller Packstücke', () => openLabelDialog(d.hus.map((x) => ({ kind: 'hu', hu_id: x.id }))), { icon: 'print' }));
-  if (dl.status === 'GEPLANT' && !d.hus.length && !d.photos.length) add(btn('Löschen', async () => {
+  if (mayLoad && dl.status === 'GEPLANT' && !d.hus.length && !d.photos.length) add(btn('Löschen', async () => {
     if (!(await confirmDialog(`Lieferung ${dl.number} löschen?`, { ok: 'Löschen', danger: true }))) return;
     try { await del(`/deliveries/${dl.id}`); toast('Lieferung gelöscht.', 'ok'); go(`#/p/${dl.project_id}/deliveries`); } catch (err) { showError(err); }
   }, { cls: 'danger', icon: 'trash' }));
@@ -174,7 +175,8 @@ export async function render(ctx) {
     inp('driver', 'Fahrer', dl.driver),
     inp('destination', 'Zielort', dl.destination, { textarea: true, wide: true }),
     inp('note', 'Bemerkung', dl.note, { textarea: true, wide: true }),
-    h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Lieferdaten speichern')));
+    mayLoad ? h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Lieferdaten speichern')) : null);
+  if (!mayLoad) for (const el of form.elements) el.disabled = true;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {};
@@ -194,6 +196,7 @@ export async function render(ctx) {
         h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Verladedokumentation (${d.photos.length} Bilder)`)),
           h('div', { class: 'panel-body' }, photoPanel({
             target: { delivery_id: dl.id, huChoices }, phases: ['VERLADUNG'], photos: d.photos, onChange: () => notifyChanged(),
+            readOnlyReason: mayLoad || can('pack') ? '' : 'Ihr Konto darf keine Bilder aufnehmen.',
           }))),
         h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Lieferdaten')), h('div', { class: 'panel-body' }, form)))),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Verlauf der Lieferung')), h('div', { class: 'panel-body flush' }, eventsTable(d.events))));

@@ -223,6 +223,48 @@ CREATE TABLE IF NOT EXISTS load_plan_items (
   UNIQUE (plan_id, hu_id)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id                   INTEGER PRIMARY KEY,
+  username             TEXT NOT NULL UNIQUE,
+  display_name         TEXT NOT NULL DEFAULT '',
+  role                 TEXT NOT NULL,
+  password_hash        TEXT NOT NULL,
+  active               INTEGER NOT NULL DEFAULT 1,
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  created_at           TEXT NOT NULL,
+  last_login_at        TEXT
+);
+
+-- id = SHA-256 des Sitzungs-Tokens (das Token selbst kennt nur der Browser)
+CREATE TABLE IF NOT EXISTS sessions (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  expires_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
+
+-- Zugriffsschlüssel für Fremdsysteme (nur als SHA-256 gespeichert)
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  created_at   TEXT NOT NULL,
+  created_by   TEXT NOT NULL DEFAULT '',
+  last_used_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_log (
+  id      INTEGER PRIMARY KEY,
+  at      TEXT NOT NULL,
+  actor   TEXT NOT NULL DEFAULT '',
+  action  TEXT NOT NULL,
+  target  TEXT NOT NULL DEFAULT '',
+  details TEXT NOT NULL DEFAULT '',
+  ip      TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS printers (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL,

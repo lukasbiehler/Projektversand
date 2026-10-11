@@ -2,6 +2,7 @@
 
 export const state = {
   meta: null,
+  session: null, // { auth, user: { username, display_name, role, permissions, … } } – auth false = Demo ohne Anmeldung
   dirty: false,
   modalOpen: 0,
   scanHandler: null,
@@ -84,8 +85,16 @@ export function btn(label, onClick, opts = {}) {
 
 // ------------------------------------------------------------------ Benutzer
 const USER_KEY = 'projektversand.user';
+/** Name für Anzeige und Protokoll: das angemeldete Konto, in der Demo der am Gerät gewählte Name */
 export function getUser() {
+  if (state.session && state.session.auth) return state.session.user ? state.session.user.display_name : '';
   try { return localStorage.getItem(USER_KEY) || ''; } catch { return ''; }
+}
+/** Darf das angemeldete Konto das? (Der Server prüft jede Buchung selbst – hier nur fürs Ein-/Ausblenden.) */
+export function can(perm) {
+  const s = state.session;
+  if (!s || !s.auth) return true;
+  return !!(s.user && s.user.permissions.includes(perm));
 }
 export function setUser(name) {
   try { localStorage.setItem(USER_KEY, name); } catch { /* Speicher nicht verfügbar */ }
@@ -97,7 +106,8 @@ export class ApiError extends Error {
 }
 
 export async function api(method, url, body) {
-  const headers = { 'X-User': encodeURIComponent(getUser() || 'unbekannt') };
+  const headers = {};
+  if (!state.session || !state.session.auth) headers['X-User'] = encodeURIComponent(getUser() || 'unbekannt');
   let payload;
   if (body instanceof Blob) { payload = body; headers['Content-Type'] = body.type; }
   else if (body !== undefined) { payload = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
@@ -109,7 +119,11 @@ export async function api(method, url, body) {
   }
   const ct = res.headers.get('content-type') || '';
   const data = ct.includes('application/json') ? await res.json() : await res.text();
-  if (!res.ok) throw new ApiError((data && data.error) || `Fehler ${res.status}`, res.status, data);
+  if (!res.ok) {
+    // Sitzung abgelaufen oder beendet, bzw. Passwortwechsel nötig → Anmeldung übernimmt (app.js)
+    if (data && (data.code === 'AUTH_REQUIRED' || data.code === 'PASSWORD_CHANGE_REQUIRED')) window.dispatchEvent(new CustomEvent('pv-auth', { detail: data.code }));
+    throw new ApiError((data && data.error) || `Fehler ${res.status}`, res.status, data);
+  }
   return data;
 }
 

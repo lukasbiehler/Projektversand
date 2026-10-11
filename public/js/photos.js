@@ -1,5 +1,5 @@
 // Mobile Bilddokumentation: Aufnahme direkt mit der Gerätekamera, Speicherung am Packstück bzw. an der Lieferung
-import { h, api, del, modal, toast, fmt, btn, confirmDialog, showError, state } from './core.js';
+import { h, api, del, modal, toast, fmt, btn, confirmDialog, showError, state, can } from './core.js';
 
 const MAX_EDGE = 2000;
 
@@ -105,7 +105,7 @@ function openPhoto(p, onChange) {
     ],
     actions: [
       { label: 'Original öffnen', onClick: () => { window.open(`/api/photos/${p.id}/file`, '_blank', 'noopener'); } },
-      { label: 'Löschen', cls: 'danger', onClick: async (close) => {
+      !(can('pack') || can('load')) ? null : { label: 'Löschen', cls: 'danger', onClick: async (close) => {
         if (!(await confirmDialog('Bild wirklich löschen? Die Löschung wird protokolliert.', { ok: 'Löschen', danger: true }))) return;
         await del(`/photos/${p.id}`);
         toast('Bild gelöscht.', 'ok');
@@ -113,6 +113,6 @@ function openPhoto(p, onChange) {
         onChange?.();
       } },
       { label: 'Schließen', cls: 'primary' },
-    ],
+    ].filter(Boolean),
   });
 }

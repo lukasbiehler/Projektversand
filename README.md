@@ -24,7 +24,11 @@ npm start
 
 Aufruf unter `http://localhost:8080`. Die Konsole zeigt zusätzlich die Adressen für Mobilgeräte im Netz.
 
-Für den **Kamera-Scan auf Mobilgeräten** ist HTTPS nötig (Vorgabe der Browser):
+Beim ersten Start zeigt die Konsole einen **Einrichtungscode**. Damit wird im Browser das Administrator-Konto
+angelegt; weitere Konten legt der Administrator unter **Benutzer** an (siehe [Anmeldung und Rollen](#anmeldung-und-rollen)).
+
+Für den **Kamera-Scan auf Mobilgeräten** ist HTTPS nötig (Vorgabe der Browser), ebenso damit Passwörter im Netz
+verschlüsselt übertragen werden:
 
 ```bash
 npm run start:https
@@ -36,7 +40,54 @@ Optionen: `--port 9000`, `--data D:\Versanddaten`.
 
 Eine Schritt-für-Schritt-Testanleitung mit Beispieldaten steht in [docs/TESTANLEITUNG.md](docs/TESTANLEITUNG.md).
 
-Tests: `npm test` (48 Tests: Geschäftsregeln, Schnittstellen und Beladungsalgorithmus mit unabhängiger Regelprüfung).
+Tests: `npm test` (64 Tests: Geschäftsregeln, Schnittstellen, Anmeldung und Rechte sowie Beladungsalgorithmus mit
+unabhängiger Regelprüfung).
+
+## Anmeldung und Rollen
+
+Ohne Anmeldung sind nur die Anmeldemaske und die Programmdateien der Oberfläche erreichbar – keine Daten, keine Bilder.
+
+**Ersteinrichtung:** Solange es kein Konto gibt, erzeugt der Server bei jedem Start einen Einrichtungscode und schreibt
+ihn in seine Konsole. Nur damit lässt sich das erste Administrator-Konto anlegen. Hat kein Administrator mehr Zugang,
+öffnet `node server/index.js --setup` die Einrichtung erneut (neuer Code, zusätzlicher Administrator).
+
+**Rollen** (ein Konto hat genau eine):
+
+| Rolle | Darf zusätzlich zum Ansehen |
+|---|---|
+| Administrator | alles, dazu Einstellungen, Drucker, SAP-Schnittstelle, Benutzer und Zugriffsschlüssel |
+| Disposition | Projekte, Packvorrat, Materialstamm, Packstücke, Lieferungen, Ladeplanung |
+| Verpackung | Packstücke anlegen und verpacken, Fehlteile melden, Positionsstatus setzen, Fotos |
+| Verladung | Lieferungen anlegen, verladen, Warenausgang, Fotos |
+| Nur lesen | nichts (ansehen, suchen, Etiketten im Browser drucken) |
+
+Die Zuordnung steht in `server/auth.js` (`ROLE_PERMISSIONS` und die Regeln in `permissionFor`). Der Server prüft jede
+einzelne Anfrage; die Oberfläche blendet nur aus, was ein Konto nicht darf. Neue ändernde Schnittstellen sind ohne
+eigene Regel automatisch Administratoren vorbehalten.
+
+**Umsetzung:**
+
+- Passwörter: mindestens 10 Zeichen, gespeichert als scrypt-Hash mit eigenem Salt. Neue Konten und zurückgesetzte
+  Passwörter erzwingen beim ersten Anmelden ein eigenes Passwort.
+- Sitzung: zufälliges Token im Cookie (`HttpOnly`, `SameSite=Strict`, über HTTPS zusätzlich `Secure`); in der Datenbank
+  liegt nur dessen SHA-256-Wert. Ende nach 12 Stunden ohne Aktivität, spätestens nach 30 Tagen. Passwortwechsel,
+  Rollenwechsel und Sperre beenden bestehende Sitzungen sofort.
+- Fehlversuche: nach fünf falschen Passwörtern wird das Konto für diesen Benutzernamen zeitweise gesperrt (ansteigend
+  bis 15 Minuten), zusätzlich je Absender-Adresse. Unbekannte Konten und falsche Passwörter liefern dieselbe Meldung.
+- Ändernde Anfragen werden nur von der eigenen Seite angenommen (Prüfung der Herkunft), die Seite lässt sich nicht in
+  fremde Seiten einbetten.
+- Protokoll: Buchungen tragen den Namen des angemeldeten Kontos. Anmeldungen, Fehlversuche, verweigerte Zugriffe und
+  Änderungen an Konten stehen im Sicherheitsprotokoll (**Benutzer** → unten).
+- Konten werden nicht gelöscht, sondern gesperrt, damit das Protokoll nachvollziehbar bleibt.
+
+**Fremdsysteme (z. B. SAP):** Für die Eingangsschnittstellen `/api/integration/…` legt der Administrator unter
+**Benutzer** einen Zugriffsschlüssel an. Er wird einmal angezeigt, gespeichert wird nur ein Prüfwert. Das Fremdsystem
+sendet ihn als `Authorization: Bearer <Schlüssel>`; der Schlüssel gibt ausschließlich diese Schnittstellen frei und
+lässt sich jederzeit widerrufen.
+
+**Noch offen** (mit der IT zu klären): Anmeldung über das Firmenkonto (Single Sign-on) statt eigener Passwörter,
+Vorgaben zu Passwortregeln und Sitzungsdauer, Aufbewahrung des Sicherheitsprotokolls. Die Demo-Version läuft
+weiterhin ohne Anmeldung.
 
 ## Demo-Version (z. B. Vercel)
 

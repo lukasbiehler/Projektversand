@@ -1,5 +1,7 @@
 // Einstieg: Routing, Echtzeit-Aktualisierung, Hardware-Scanner, Benutzer
-import { h, state, loadMeta, getUser, setUser, formDialog, isEditable, debounce, openCode, toast, feedback, showError, runCleanups, get, post, modal, confirmDialog } from './core.js';
+import { h, state, loadMeta, getUser, setUser, can, formDialog, isEditable, debounce, openCode, toast, feedback, showError, runCleanups, get, post, modal, confirmDialog } from './core.js';
+import { loadSession, renderLogin, renderForcedPassword, openUserMenu } from './auth.js';
+import * as users from './views/users.js';
 import * as home from './views/home.js';
 import * as project from './views/project.js';
 import * as hu from './views/hu.js';
@@ -16,6 +18,7 @@ const ROUTES = [
   [/^\/search$/, search, 'search'],
   [/^\/materials$/, materials, 'materials'],
   [/^\/settings$/, settings, 'settings'],
+  [/^\/users$/, users, 'users'],
   [/^\/p\/(\d+)(?:\/([a-z]+))?$/, project, 'home'],
   [/^\/hu\/(\d+)$/, hu, 'home'],
   [/^\/d\/(\d+)$/, delivery, 'home'],
@@ -213,7 +216,7 @@ document.addEventListener('input', (e) => {
 let buf = '';
 let last = 0;
 document.addEventListener('keydown', (e) => {
-  if (state.modalOpen > 0 || isEditable(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (!started || state.modalOpen > 0 || isEditable(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
   const now = performance.now();
   if (now - last > 120) buf = '';
   last = now;
@@ -241,12 +244,25 @@ async function dispatchScan(code) {
 }
 
 // ------------------------------------------------------------------ Benutzer
+const withAuth = () => !!(state.session && state.session.auth);
+
 function updateUserBtn() {
   const b = document.getElementById('userbtn');
   const u = getUser();
   b.textContent = u ? u : 'Anmelden';
+  b.title = withAuth() ? 'Konto, Passwort ändern, Abmelden' : 'Benutzer wechseln';
+  b.hidden = withAuth() && !state.session.user;
 }
 
+/** Menüpunkte nach Berechtigung (data-perm: eines der Rechte genügt; data-auth: nur mit Anmeldung) */
+function updateNav() {
+  for (const a of document.querySelectorAll('#mainnav a')) {
+    const perms = (a.dataset.perm || '').split(' ').filter(Boolean);
+    a.hidden = ('auth' in a.dataset && !withAuth()) || (perms.length > 0 && !perms.some(can));
+  }
+}
+
+// Demo ohne Anmeldung: jedes Gerät nennt nur einen Namen für das Protokoll
 function askUser(force) {
   if (getUser() && !force) return;
   formDialog({
@@ -262,19 +278,46 @@ function askUser(force) {
   });
 }
 
-document.getElementById('userbtn').addEventListener('click', () => askUser(true));
+document.getElementById('userbtn').addEventListener('click', () => (withAuth() ? openUserMenu() : askUser(true)));
+
+// Sitzung abgelaufen, Konto gesperrt, Rolle geändert oder Passwortwechsel verlangt → neu laden, der Start zeigt
+// dann die Anmeldung (die aufgerufene Seite bleibt über die Adresse erhalten)
+let started = false;
+window.addEventListener('pv-auth', () => { if (started) location.reload(); });
 
 // ------------------------------------------------------------------ Start
-(async () => {
+const fail = (err) => appEl.replaceChildren(h('div', { class: 'panel' }, h('div', { class: 'empty err' }, err.message)));
+
+async function start() {
+  document.body.classList.remove('signed-out');
   updateUserBtn();
+  updateNav();
   try {
     await loadMeta();
   } catch (err) {
-    appEl.replaceChildren(h('div', { class: 'panel' }, h('div', { class: 'empty err' }, err.message)));
+    fail(err);
     return;
   }
+  started = true;
   window.addEventListener('hashchange', route);
   if (state.meta.demo) { showDemoBanner(); startPolling(); } else connectLive();
   await route();
-  askUser(false);
+  if (!withAuth()) askUser(false);
+}
+
+(async () => {
+  try {
+    await loadSession();
+  } catch (err) {
+    fail(err);
+    return;
+  }
+  const s = state.session;
+  if (s.auth && (!s.user || s.user.must_change_password)) {
+    document.body.classList.add('signed-out');
+    updateUserBtn();
+    if (!s.user) renderLogin(appEl, start); else renderForcedPassword(appEl, start);
+    return;
+  }
+  start();
 })();

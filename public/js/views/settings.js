@@ -1,8 +1,11 @@
 // Einstellungen: Benutzer, Etiketten, Nummernkreise, Barcode-Muster, SAP-Schnittstelle, Drucker
-import { h, get, put, post, del, btn, fmt, toast, formDialog, confirmDialog, getUser, setUser, showError, downloadBlob, notifyChanged, state, optionList } from '../core.js';
+import { h, get, put, post, del, btn, fmt, toast, formDialog, confirmDialog, getUser, setUser, showError, downloadBlob, notifyChanged, state, optionList, can } from '../core.js';
 
 export async function render(ctx) {
-  const [s, printers, outbox, vtypes] = await Promise.all([get('/settings'), get('/printers'), get('/sap/outbox?limit=50'), get('/vehicle-types')]);
+  // Allgemeines, Drucker und SAP pflegen Administratoren; Fahrzeugtypen auch die Disposition
+  const admin = can('admin');
+  const withAuth = !!(state.session && state.session.auth);
+  const [s, printers, outbox, vtypes] = await Promise.all([get('/settings'), get('/printers'), admin ? get('/sap/outbox?limit=50') : null, get('/vehicle-types')]);
 
   // ---------------------------------------------------------------- Allgemein
   const f = (name, label, value, extra = {}) => h('label', { class: `field${extra.wide ? ' wide' : ''}` }, label,
@@ -12,7 +15,7 @@ export async function render(ctx) {
     extra.hint ? h('span', { class: 'hint' }, extra.hint) : null);
   const userInput = h('input', { id: 'set-user', value: getUser() });
   const general = h('form', { class: 'form-grid' },
-    h('label', { class: 'field' }, 'Benutzer an diesem Gerät', userInput, h('span', { class: 'hint' }, 'Wird bei jeder Buchung protokolliert')),
+    withAuth ? null : h('label', { class: 'field' }, 'Benutzer an diesem Gerät', userInput, h('span', { class: 'hint' }, 'Wird bei jeder Buchung protokolliert')),
     f('label_header', 'Kopfzeile auf Etiketten', s.label_header, { hint: 'z. B. Firmenname oder Werk' }),
     f('label_dpi', 'Auflösung ZPL-Dateien', s.label_dpi, { select: [['203', '203 dpi'], ['300', '300 dpi'], ['600', '600 dpi']] }),
     f('hu_prefix', 'Präfix HU-Nummern', s.hu_prefix, { hint: 'HU-Nummer = Präfix + 8 Ziffern' }),
@@ -23,8 +26,10 @@ export async function render(ctx) {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(general));
     try {
-      if (userInput.value.trim()) setUser(userInput.value.trim().slice(0, 60));
-      document.getElementById('userbtn').textContent = getUser() || 'Anmelden';
+      if (!withAuth) {
+        if (userInput.value.trim()) setUser(userInput.value.trim().slice(0, 60));
+        document.getElementById('userbtn').textContent = getUser() || 'Anmelden';
+      }
       await put('/settings', body);
       toast('Einstellungen gespeichert.', 'ok');
       notifyChanged();
@@ -32,7 +37,7 @@ export async function render(ctx) {
   });
 
   // ---------------------------------------------------------------- SAP
-  const st = outbox.stats;
+  const st = outbox ? outbox.stats : {};
   const sapForm = h('form', { class: 'form-grid' },
     f('sap_enabled', 'Übertragung an SAP', s.sap_enabled, { select: [['0', 'Aus (Nachrichten sammeln)'], ['1', 'Ein (sofort übertragen)']] }),
     f('sap_endpoint', 'Endpunkt (HTTP POST, JSON)', s.sap_endpoint, { wide: true, placeholder: 'https://sap-gateway.firma.local/sap/opu/…', type: 'url' }),
@@ -50,7 +55,7 @@ export async function render(ctx) {
   };
   const statusTag = (x) => h('span', { class: `tag${x === 'SENT' ? ' ok' : x === 'ERROR' ? ' warn' : ''}` },
     { PENDING: 'wartet', SENT: 'übertragen', ERROR: 'Fehler', EXPORTED: 'exportiert' }[x] || x);
-  const sapPanel = h('section', { class: 'panel' },
+  const sapPanel = !admin ? null : h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, 'SAP-Rückmeldung (Echtzeit)')),
     h('div', { class: 'panel-body' },
       h('p', { class: 'hint' }, 'Jede Buchung (HU angelegt, Material verpackt/entnommen, Verschachtelung, Status, Verladung, Warenausgang, Zustellung, Fehlteile) wird als Nachricht in exakt der Buchungsreihenfolge an den Endpunkt übertragen – z. B. einen SOMA- oder SAP-Gateway-Service. Ohne Verbindung bleiben die Nachrichten erhalten und werden automatisch nachgesendet.'),
@@ -89,7 +94,7 @@ export async function render(ctx) {
       toast('Drucker gespeichert.', 'ok');
     },
   });
-  const printerPanel = h('section', { class: 'panel' },
+  const printerPanel = !admin ? null : h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, 'Etikettendrucker (Netzwerk / WLAN)'), state.meta.demo ? null : btn('Drucker hinzufügen', () => printerDialog(), { icon: 'plus' })),
     state.meta.demo ? h('div', { class: 'panel-body' }, h('p', { class: 'notice' }, 'In der Demo-Version sind Netzwerkdrucker deaktiviert. Etiketten lassen sich über den Druckdialog des Browsers drucken oder als ZPL-Datei herunterladen.')) : null,
     h('div', { class: 'panel-body' },
@@ -132,7 +137,7 @@ export async function render(ctx) {
       toast('Laderaum-Typ gespeichert.', 'ok');
     },
   });
-  const vtPanel = h('section', { class: 'panel' },
+  const vtPanel = !can('loadplan') ? null : h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, `Fahrzeuge & Container für die Ladeplanung (${vtypes.length})`), btn('Typ anlegen', () => vtDialog(null), { icon: 'plus' })),
     h('div', { class: 'panel-body' }, h('p', { class: 'hint' }, 'Vorlagen sind Richtwerte – Maße, Nutzlast und Achslasten an die eingesetzten Fahrzeuge anpassen. Bestehende Ladepläne behalten die Werte zum Zeitpunkt ihrer Erstellung.')),
     h('div', { class: 'panel-body flush' }, h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
@@ -153,9 +158,9 @@ export async function render(ctx) {
 
   ctx.show(h('div', { class: 'stack', style: { gap: '18px' } },
     h('div', { class: 'page-head' }, h('div', { class: 'titles' }, h('h1', null, 'Einstellungen'))),
-    h('div', { class: 'grid-2' },
+    admin ? h('div', { class: 'grid-2' },
       h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Allgemein')), h('div', { class: 'panel-body' }, general)),
-      printerPanel),
+      printerPanel) : null,
     vtPanel,
     sapPanel,
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, 'Mobile Geräte & Scanner')),

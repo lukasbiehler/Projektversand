@@ -1,6 +1,6 @@
 // Projekt-Cockpit: Übersicht, Packvorrat, Packstücke (HUs), Lieferungen, Fehlteile/Nachlieferungen, Verlauf, Stammdaten
 import {
-  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, openCode, setScanHandler, optionList, showError, notifyChanged,
+  h, get, post, put, del, state, btn, chip, fmt, toast, formDialog, confirmDialog, go, openCode, setScanHandler, optionList, showError, notifyChanged, can,
 } from '../core.js';
 import { openLabelDialog } from '../labels.js';
 import { openImportWizard } from '../importer.js';
@@ -79,9 +79,10 @@ async function renderOverview(p) {
       panel('Packstückstatus (äußere Packstücke)', distribution(s.hu_status, meta.hu_status))),
     h('div', { class: 'grid-2' },
       panel('Schnellzugriff', h('div', { class: 'row' },
-        btn('Packvorrat importieren', () => openImportWizard({ mode: 'items', projectId: p.id, onDone: () => go(`#/p/${p.id}/items`) }), { icon: 'upload' }),
-        btn('Neues Packstück', () => newHuDialog(p), { icon: 'box', cls: 'primary' }),
-        btn('Neue Lieferung', () => newDeliveryDialog(p), { icon: 'truck' }))),
+        can('plan') && btn('Packvorrat importieren', () => openImportWizard({ mode: 'items', projectId: p.id, onDone: () => go(`#/p/${p.id}/items`) }), { icon: 'upload' }),
+        can('pack') && btn('Neues Packstück', () => newHuDialog(p), { icon: 'box', cls: 'primary' }),
+        can('load') && btn('Neue Lieferung', () => newDeliveryDialog(p), { icon: 'truck' }),
+        can('plan') || can('pack') || can('load') ? null : h('span', { class: 'muted small' }, 'Ihr Konto hat nur Leserechte.'))),
       panel('Letzte Aktivitäten', eventsTable(events, { compact: true }), h('a', { href: `#/p/${p.id}/history`, class: 'small' }, 'Gesamter Verlauf'))));
 }
 
@@ -133,12 +134,12 @@ async function renderItems(p, ctx) {
 
   const selected = () => items.filter((i) => f.sel.has(i.id));
   const actions = h('div', { class: 'row' },
-    btn('Position ergänzen', () => itemDialog(p, 'MANUELL'), { icon: 'plus' }),
-    btn('Lieferantenmaterial', () => itemDialog(p, 'LIEFERANT'), { icon: 'plus' }),
-    btn('Import (Excel / SAP)', () => openImportWizard({ mode: 'items', projectId: p.id, onDone: rerender }), { icon: 'upload', cls: 'primary' }),
+    can('plan') && btn('Position ergänzen', () => itemDialog(p, 'MANUELL'), { icon: 'plus' }),
+    can('plan') && btn('Lieferantenmaterial', () => itemDialog(p, 'LIEFERANT'), { icon: 'plus' }),
+    can('plan') && btn('Import (Excel / SAP)', () => openImportWizard({ mode: 'items', projectId: p.id, onDone: rerender }), { icon: 'upload', cls: 'primary' }),
     h('span', { class: 'spacer' }),
     h('span', { class: 'muted small' }, `${f.sel.size} ausgewählt`),
-    btn('Status setzen', () => statusDialog(selected()), { disabled: !f.sel.size }),
+    can('report') && btn('Status setzen', () => statusDialog(selected()), { disabled: !f.sel.size }),
     btn('Artikeletiketten', () => openLabelDialog(selected().map((i) => ({ kind: 'item', item_id: i.id }))), { icon: 'print', disabled: !f.sel.size }));
 
   const allBox = h('input', { type: 'checkbox', 'aria-label': 'Alle sichtbaren auswählen', 'data-nodirty': '1', checked: visible.length > 0 && visible.every((i) => f.sel.has(i.id)) });
@@ -164,10 +165,10 @@ async function renderItems(p, ctx) {
         h('td', null, chip(i.status, i.status_label)),
         h('td', { class: 'small' }, i.placements.length ? i.placements.map((pl) => h('div', null, h('a', { href: `#/hu/${pl.hu_id}`, class: 'mono' }, pl.package_number), ` (${fmt.num(pl.qty)})`)) : '–'),
         h('td', { class: 'nowrap' },
-          btn('Bearbeiten', () => editItemDialog(p, i), { cls: 'small ghost' }),
-          btn('Fehlteil', () => missingDialog(i), { cls: 'small ghost', disabled: i.qty_open <= 0 && i.qty_missing_eff <= 0 }),
+          can('plan') && btn('Bearbeiten', () => editItemDialog(p, i), { cls: 'small ghost' }),
+          can('report') && btn('Fehlteil', () => missingDialog(i), { cls: 'small ghost', disabled: i.qty_open <= 0 && i.qty_missing_eff <= 0 }),
           btn('Etikett', () => openLabelDialog([{ kind: 'item', item_id: i.id }]), { cls: 'small ghost' }),
-          btn('Löschen', () => deleteItem(i), { cls: 'small ghost danger', disabled: i.qty_packed > 0 })));
+          can('plan') && btn('Löschen', () => deleteItem(i), { cls: 'small ghost danger', disabled: i.qty_packed > 0 })));
     }))));
 
   return h('section', { class: 'panel' },
@@ -320,7 +321,7 @@ async function renderHus(p, ctx) {
   return h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, `Packstücke / Handling Units (${hus.length})`),
       btn('Etiketten (sichtbare)', () => openLabelDialog(visible.map(({ x }) => ({ kind: 'hu', hu_id: x.id }))), { icon: 'print', disabled: !visible.length }),
-      btn('Neues Packstück', () => newHuDialog(p), { icon: 'plus', cls: 'primary' })),
+      can('pack') && btn('Neues Packstück', () => newHuDialog(p), { icon: 'plus', cls: 'primary' })),
     h('div', { class: 'panel-body' }, h('div', { class: 'row' }, qIn, stSel,
       h('span', { class: 'muted small' }, `${top.length} äußere Packstücke · ${top.filter((x) => x.status === 'VERSANDBEREIT').length} versandbereit`))),
     h('div', { class: 'panel-body flush' }, hus.length ? table : h('div', { class: 'empty' }, 'Noch keine Packstücke. Legen Sie eine Kiste, Palette, einen Container oder ein Großcolli an und scannen Sie das Material hinein.')));
@@ -375,7 +376,7 @@ async function renderDeliveries(p) {
       h('td', { class: 'num' }, fmt.kg(d.gross_total)),
       h('td', { class: 'num' }, d.photos_count || '–'))))));
   return h('section', { class: 'panel' },
-    h('div', { class: 'panel-head' }, h('h2', null, `Lieferungen (${list.length})`), btn('Neue Lieferung', () => newDeliveryDialog(p), { icon: 'plus', cls: 'primary' })),
+    h('div', { class: 'panel-head' }, h('h2', null, `Lieferungen (${list.length})`), can('load') && btn('Neue Lieferung', () => newDeliveryDialog(p), { icon: 'plus', cls: 'primary' })),
     h('div', { class: 'panel-body flush' }, list.length ? table : h('div', { class: 'empty' }, 'Noch keine Lieferungen. Legen Sie eine Lieferung an und scannen Sie die versandbereiten Packstücke bei der Verladung.')));
 }
 
@@ -419,7 +420,7 @@ async function renderShortages(p) {
       h('td', null, i.missing_reason || '–'),
       h('td', { class: 'nowrap' }, i.missing_expected ? fmt.date(i.missing_expected) : '–'),
       h('td', { class: 'small' }, i.placements.length ? i.placements.map((pl) => h('div', null, h('a', { href: `#/hu/${pl.hu_id}`, class: 'mono' }, pl.package_number), ` ${fmt.num(pl.qty)} · ${pl.status_label}`)) : '–'),
-      h('td', null, btn('Bearbeiten', () => missingDialog(i), { cls: 'small' })))))));
+      h('td', null, can('report') && btn('Bearbeiten', () => missingDialog(i), { cls: 'small' })))))));
   const resolvedTable = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
     h('thead', null, h('tr', null, h('th', null, 'Material'), h('th', null, 'PSP-Element'), h('th', null, 'Status'), h('th', null, 'Verpackt / geliefert'))),
     h('tbody', null, s.resolved.map((i) => h('tr', null,
@@ -438,7 +439,7 @@ async function renderShortages(p) {
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Offene Fehlteile (${s.open.length})`)),
       h('div', { class: 'panel-body flush' }, s.open.length ? openTable : h('div', { class: 'empty' }, 'Keine offenen Fehlteile.'))),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Nachlieferungen (${s.supplementary_deliveries.length})`),
-      btn('Nachlieferung anlegen', () => newDeliveryDialog(p), { icon: 'plus' })),
+      can('load') && btn('Nachlieferung anlegen', () => newDeliveryDialog(p), { icon: 'plus' })),
     h('div', { class: 'panel-body flush' }, s.supplementary_deliveries.length ? suppTable : h('div', { class: 'empty' }, 'Keine Nachlieferungen.'))),
     h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('h2', null, `Erledigte Fehlteile (${s.resolved.length})`)),
       h('div', { class: 'panel-body flush' }, s.resolved.length ? resolvedTable : h('div', { class: 'empty' }, 'Noch keine erledigten Fehlteile.'))));
@@ -474,7 +475,8 @@ async function renderMaster(p) {
     h('label', { class: 'field' }, 'Bezeichnung', h('input', { name: 'name', id: 'pm-name', value: p.name })),
     h('label', { class: 'field' }, 'Kunde', h('input', { name: 'customer', id: 'pm-customer', value: p.customer })),
     h('label', { class: 'field wide' }, 'Zielort / Lieferadresse', h('textarea', { name: 'destination', id: 'pm-destination', value: p.destination })),
-    h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Speichern')));
+    can('plan') && h('div', { class: 'row wide' }, h('button', { type: 'submit', class: 'btn primary' }, 'Speichern')));
+  if (!can('plan')) for (const el of form.elements) el.disabled = true;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(form));
@@ -486,8 +488,8 @@ async function renderMaster(p) {
     h('tbody', null, p.psp.map((x) => h('tr', null,
       h('td', { class: 'mono' }, x.code), h('td', null, x.description || '–'), h('td', { class: 'num' }, x.item_count), h('td', { class: 'num' }, x.hu_count),
       h('td', { class: 'nowrap' },
-        btn('Bearbeiten', () => pspDialog(p, x), { cls: 'small ghost' }),
-        btn('Löschen', async () => {
+        can('plan') && btn('Bearbeiten', () => pspDialog(p, x), { cls: 'small ghost' }),
+        can('plan') && btn('Löschen', async () => {
           if (!(await confirmDialog(`PSP-Element ${x.code} löschen?`, { ok: 'Löschen', danger: true }))) return;
           try { await del(`/psp/${x.id}`); toast('PSP-Element gelöscht.', 'ok'); notifyChanged(); } catch (err) { showError(err); }
         }, { cls: 'small ghost danger', disabled: x.item_count > 0 || x.hu_count > 0 })))))));
@@ -495,7 +497,7 @@ async function renderMaster(p) {
   return h('div', { class: 'grid-2' },
     panel('Projektdaten', form),
     h('section', { class: 'panel' },
-      h('div', { class: 'panel-head' }, h('h2', null, `PSP-Elemente (${p.psp.length})`), btn('PSP-Element anlegen', () => pspDialog(p), { icon: 'plus' })),
+      h('div', { class: 'panel-head' }, h('h2', null, `PSP-Elemente (${p.psp.length})`), can('plan') && btn('PSP-Element anlegen', () => pspDialog(p), { icon: 'plus' })),
       h('div', { class: 'panel-body flush' }, p.psp.length ? pspTable : h('div', { class: 'empty' }, 'PSP-Elemente werden beim Import automatisch angelegt.'))));
 }
 
@@ -531,7 +533,7 @@ async function renderLoadplans(p) {
       h('td', { class: 'num' }, x.deliveries || '–'),
       h('td', { class: 'small nowrap' }, fmt.dt(x.updated_at)))))));
   return h('section', { class: 'panel' },
-    h('div', { class: 'panel-head' }, h('h2', null, `Ladeplanung (${plans.length})`), btn('Neuer Ladeplan', () => newLoadplanDialog(p), { icon: 'plus', cls: 'primary' })),
+    h('div', { class: 'panel-head' }, h('h2', null, `Ladeplanung (${plans.length})`), can('loadplan') && btn('Neuer Ladeplan', () => newLoadplanDialog(p), { icon: 'plus', cls: 'primary' })),
     h('div', { class: 'panel-body' }, h('p', { class: 'hint' }, 'LKW, Auflieger oder Container wählen und die Packstücke automatisch optimal beladen lassen – mit 3D-Ansicht, Achslast- und Schwerpunktprüfung, Beladereihenfolge und Bericht. Ein Laderaum kann einer Lieferung zugeordnet werden; die Verladung per Scan folgt dann dem Plan.')),
     h('div', { class: 'panel-body flush' }, plans.length ? table : h('div', { class: 'empty' }, 'Noch keine Ladepläne.')));
 }

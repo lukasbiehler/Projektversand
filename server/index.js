@@ -1,5 +1,5 @@
 'use strict';
-// Startpunkt: node server/index.js [--port 8080] [--https] [--data ./data]
+// Startpunkt: node server/index.js [--port 8080] [--https] [--data ./data] [--setup]
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -52,6 +52,7 @@ async function main() {
   const demoMode = !!arg('demo', process.env.DEMO_MODE === '1');
   let handler;
   let close = () => {};
+  let setupCode = null;
   if (demoMode) {
     const { createDemoHost, DEMO_DIR } = require('./demo');
     // Immer ein eigener temporärer Ordner – der Demo-Modus löscht ihn beim Zurücksetzen (nie die echten Daten)
@@ -60,10 +61,12 @@ async function main() {
     close = () => { const c = host.current(); if (c) c.close(); };
     console.log('Demo-Modus: Daten sind temporär und werden beim Start mit dem Beispielprojekt angelegt.');
   } else {
-    const ctx = createApp({ dataDir });
+    // --setup: weiteren Administrator per Einrichtungscode anlegen (z. B. wenn kein Administrator mehr Zugang hat)
+    const ctx = createApp({ dataDir, setup: !!arg('setup', false) });
     ctx.domain.sap.start();
     handler = ctx.app;
     close = ctx.close;
+    setupCode = ctx.auth.setupCode;
   }
 
   const server = useHttps ? https.createServer(await loadOrCreateCert(dataDir), handler) : http.createServer(handler);
@@ -74,6 +77,12 @@ async function main() {
     for (const ip of lanAddresses()) console.log(`  ${proto}://${ip}:${port}   (für Scanner / Mobilgeräte im Netz)`);
     console.log(`Daten: ${demoMode ? require('./demo').DEMO_DIR + ' (Demo, temporär)' : dataDir}`);
     if (!useHttps) console.log('Hinweis: Kamera-Scan auf Mobilgeräten benötigt HTTPS → "npm run start:https"');
+    if (!useHttps && !demoMode) console.log('Hinweis: Ohne HTTPS werden Passwörter unverschlüsselt übertragen – im Netz mit "npm run start:https" starten.');
+    if (setupCode) {
+      console.log('');
+      console.log(`Einrichtungscode für den Administrator: ${setupCode}`);
+      console.log('Im Browser öffnen und mit diesem Code das Administrator-Konto anlegen. Der Code gilt einmalig bis zum Neustart.');
+    }
   });
 
   const shutdown = () => {

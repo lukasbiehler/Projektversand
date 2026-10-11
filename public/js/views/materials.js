@@ -1,5 +1,5 @@
 // Materialstamm: SAP-Materialnummern mit vorhandenen Barcodes (keine parallele Barcodewelt)
-import { h, get, post, put, del, state, btn, fmt, toast, formDialog, confirmDialog, modal, setScanHandler, optionList, showError, notifyChanged } from '../core.js';
+import { h, get, post, put, del, state, btn, fmt, toast, formDialog, confirmDialog, modal, setScanHandler, optionList, showError, notifyChanged, can } from '../core.js';
 import { openImportWizard } from '../importer.js';
 
 let lastQ = '';
@@ -32,8 +32,8 @@ export async function render(ctx) {
       h('div', { class: 'titles' }, h('h1', null, 'Materialstamm'),
         h('p', { class: 'muted' }, 'SAP-Materialnummern und die bereits in Produktion, Lager und Logistik verwendeten Barcodes. Gescannte Artikeletiketten werden hierüber erkannt.')),
       h('div', { class: 'row' },
-        btn('Material anlegen', () => createDialog(), { icon: 'plus' }),
-        btn('Import (SAP / Excel)', () => openImportWizard({ mode: 'materials', onDone: () => ctx.refresh() }), { icon: 'upload', cls: 'primary' }))),
+        can('materials') && btn('Material anlegen', () => createDialog(), { icon: 'plus' }),
+        can('materials') && btn('Import (SAP / Excel)', () => openImportWizard({ mode: 'materials', onDone: () => ctx.refresh() }), { icon: 'upload', cls: 'primary' }))),
     h('section', { class: 'panel' },
       h('div', { class: 'panel-head' }, h('h2', null, `${data.rows.length} von ${data.total} Materialien`), h('div', { style: { flex: '1 1 300px' } }, qInput)),
       h('div', { class: 'panel-body flush' }, table))));
@@ -60,9 +60,10 @@ async function materialDialog(nr) {
   let m;
   try { m = await get(`/materials/${encodeURIComponent(nr)}`); } catch (err) { showError(err); return; }
   const sym = state.meta.symbologies;
-  const desc = h('input', { id: 'md-desc', value: m.description });
-  const unit = h('input', { id: 'md-unit', value: m.unit });
-  const weight = h('input', { id: 'md-weight', type: 'number', step: 'any', min: 0, value: m.weight_kg === null ? '' : String(m.weight_kg) });
+  const edit = can('materials');
+  const desc = h('input', { id: 'md-desc', value: m.description, disabled: !edit });
+  const unit = h('input', { id: 'md-unit', value: m.unit, disabled: !edit });
+  const weight = h('input', { id: 'md-weight', type: 'number', step: 'any', min: 0, value: m.weight_kg === null ? '' : String(m.weight_kg), disabled: !edit });
   const bcInput = h('input', { id: 'md-bc', placeholder: 'Barcode scannen oder eingeben', 'data-scan': '1' });
   const bcSym = h('select', { id: 'md-sym', value: 'CODE128' }, optionList(sym).map((o) => h('option', { value: o.value }, o.label)));
   const list = h('div', { class: 'stack' });
@@ -71,11 +72,11 @@ async function materialDialog(nr) {
     if (!m.barcodes.length) list.append(h('p', { class: 'muted small' }, 'Kein Barcode hinterlegt – auf Etiketten wird die Materialnummer als Code 128 gedruckt.'));
     for (const b of m.barcodes) {
       list.append(h('div', { class: 'row' }, h('span', { class: 'mono' }, b.barcode), h('span', { class: 'tag' }, sym[b.symbology] || b.symbology),
-        b.is_primary ? h('span', { class: 'tag ok' }, 'wird auf Etikett gedruckt') : btn('Für Etikett verwenden', async () => {
+        b.is_primary ? h('span', { class: 'tag ok' }, 'wird auf Etikett gedruckt') : edit && btn('Für Etikett verwenden', async () => {
           try { m = await post(`/materials/${encodeURIComponent(m.material_number)}/barcodes`, { barcode: b.barcode, symbology: b.symbology, is_primary: true }); renderList(); notifyChanged(); } catch (err) { showError(err); }
         }, { cls: 'small ghost' }),
         h('span', { class: 'spacer' }),
-        btn('Entfernen', async () => {
+        edit && btn('Entfernen', async () => {
           if (!(await confirmDialog(`Barcode ${b.barcode} von Material ${m.material_number} entfernen?`, { ok: 'Entfernen', danger: true }))) return;
           try { m = await del(`/barcodes/${encodeURIComponent(b.barcode)}`); renderList(); notifyChanged(); } catch (err) { showError(err); }
         }, { cls: 'small ghost danger' })));
@@ -104,16 +105,16 @@ async function materialDialog(nr) {
         h('label', { class: 'field' }, 'Gewicht je Einheit (kg)', weight)),
       h('h3', null, 'Barcodes'),
       list,
-      h('div', { class: 'row' }, h('div', { style: { flex: '1 1 220px' } }, bcInput), h('div', { style: { flex: '0 1 180px' } }, bcSym), btn('Zuordnen', addBc)),
+      edit && h('div', { class: 'row' }, h('div', { style: { flex: '1 1 220px' } }, bcInput), h('div', { style: { flex: '0 1 180px' } }, bcSym), btn('Zuordnen', addBc)),
     ],
     actions: [
-      { label: 'Schließen' },
-      { label: 'Speichern', cls: 'primary', onClick: async (close) => {
+      { label: 'Schließen', cls: edit ? '' : 'primary' },
+      edit && { label: 'Speichern', cls: 'primary', onClick: async (close) => {
         await put(`/materials/${encodeURIComponent(m.material_number)}`, { description: desc.value, unit: unit.value, weight_kg: weight.value === '' ? null : Number(weight.value) });
         toast('Material gespeichert.', 'ok');
         close();
         notifyChanged();
       } },
-    ],
+    ].filter(Boolean),
   });
 }

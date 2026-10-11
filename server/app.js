@@ -9,6 +9,7 @@ const { createDomain } = require('./domain');
 const { createLoadplanDomain } = require('./loadplans');
 const C = require('./constants');
 const { toZpl, sendRaw } = require('./labels');
+const { createAuth } = require('./auth');
 const { AppError, bad } = require('./util');
 
 const ROOT = path.join(__dirname, '..');
@@ -22,8 +23,11 @@ const VENDOR = {
  * demo: false oder { reset(mode) } – im Demo-Modus werden Funktionen gesperrt, die aus einer öffentlichen Demo heraus
  * Verbindungen zu fremden Systemen aufbauen würden (SAP-Endpunkt, Netzwerkdrucker), und die Oberfläche fragt Änderungen
  * regelmäßig ab statt über eine dauerhafte Verbindung (serverlose Umgebungen wie Vercel).
+ * auth: Anmeldung und Rollen (Standard: ein). Ohne Anmeldung läuft nur die Demo-Version; dort nennt jedes Gerät
+ * lediglich einen Namen für das Protokoll. setup: true erlaubt das Anlegen eines weiteren Administrators per
+ * Einrichtungscode (Zugang wiederherstellen).
  */
-function createApp({ dataDir, db: existingDb, demo = false } = {}) {
+function createApp({ dataDir, db: existingDb, demo = false, auth: useAuth = !demo, setup = false } = {}) {
   // Kennung des Datenstands: wechselt sie, laden die Oberflächen neu (bei gemeinsamem Demo-Speicher vorgegeben)
   const instance = (demo && demo.instanceId) || require('node:crypto').randomUUID();
   const db = existingDb || openDatabase(dataDir);
@@ -43,21 +47,25 @@ function createApp({ dataDir, db: existingDb, demo = false } = {}) {
 
   const domain = createDomain(db, { photosDir, onChange: (e) => broadcast({ type: 'change', ...e }) });
   const loadplans = createLoadplanDomain(domain);
+  const auth = useAuth ? createAuth(db, { forceSetup: setup }) : null;
   const app = express();
   app.disable('x-powered-by');
   app.set('etag', false);
 
   app.use((req, res, next) => {
+    // Ohne Anmeldung (Demo) nennt das Gerät seinen Benutzer selbst; mit Anmeldung setzt ihn die Sitzung (auth.guard)
     let user = '';
-    try { user = decodeURIComponent(req.get('x-user') || ''); } catch { user = ''; }
+    if (!auth) { try { user = decodeURIComponent(req.get('x-user') || ''); } catch { user = ''; } }
     req.user = user.trim().slice(0, 60) || 'unbekannt';
     res.set('X-Content-Type-Options', 'nosniff');
+    res.set('X-Frame-Options', 'DENY');
+    res.set('Referrer-Policy', 'same-origin');
+    if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000');
     next();
   });
 
   const json = express.json({ limit: '25mb' });
   const api = express.Router();
-  api.use(json);
 
   const h = (fn) => (req, res, next) => {
     try {
@@ -75,6 +83,26 @@ function createApp({ dataDir, db: existingDb, demo = false } = {}) {
 
   // ---------------------------------------------------------------- Meta, Einstellungen, Echtzeit
   api.get('/health', h(() => ({ ok: true })));
+
+  // ---------------------------------------------------------------- Anmeldung
+  // Reihenfolge: erst Anmeldung und Berechtigung prüfen, dann erst (große) Anfrageinhalte lesen
+  if (auth) {
+    api.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+    api.use('/auth', auth.router());
+    api.use(auth.guard);
+  } else {
+    api.get('/auth/session', h(() => ({ auth: false })));
+  }
+  api.use(json);
+  if (auth) {
+    api.get('/users', h(() => auth.listUsers()));
+    api.post('/users', h((req) => auth.createUser(req)));
+    api.put('/users/:id', h((req) => auth.updateUser(req, id(req))));
+    api.get('/api-tokens', h(() => auth.listTokens()));
+    api.post('/api-tokens', h((req) => auth.createToken(req)));
+    api.delete('/api-tokens/:id', h((req) => auth.deleteToken(req, id(req))));
+    api.get('/auth-log', h((req) => auth.listLog(req.query.limit)));
+  }
   // Im Demo-Modus gesperrt: ausgehende Verbindungen zu frei eingebbaren Zielen
   if (demo) {
     api.use((req, res, next) => {
@@ -107,7 +135,12 @@ function createApp({ dataDir, db: existingDb, demo = false } = {}) {
     photo_phases: C.PHOTO_PHASES, photo_categories: C.PHOTO_CATEGORIES, symbologies: C.SYMBOLOGIES, integer_units: C.INTEGER_UNITS,
     vehicle_categories: C.VEHICLE_CATEGORIES,
   })));
-  api.get('/settings', h(() => domain.publicSettings()));
+  api.get('/settings', h((req) => {
+    const s = domain.publicSettings();
+    // Angaben zur SAP-Anbindung sehen nur Administratoren
+    if (auth && !auth.can(req.principal, 'admin')) for (const k of Object.keys(s)) if (k.startsWith('sap_')) delete s[k];
+    return s;
+  }));
   api.put('/settings', h((req) => domain.updateSettings(req.user, req.body || {})));
 
   api.get('/stream', (req, res) => {
@@ -319,7 +352,7 @@ function createApp({ dataDir, db: existingDb, demo = false } = {}) {
     clients.clear();
   }
 
-  return { app, domain, loadplans, db, close };
+  return { app, domain, loadplans, db, auth, close };
 }
 
 module.exports = { createApp };

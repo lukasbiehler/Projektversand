@@ -1,5 +1,5 @@
 // Etiketten (Einzelartikel 100×50 mm, Handling Unit 100×150 mm) – Browserdruck, Netzwerkdrucker (ZPL), ZPL-Datei
-import { h, append, api, post, get, modal, toast, fmt, loadScript, downloadBlob, getUser } from './core.js';
+import { h, append, api, post, get, modal, toast, fmt, loadScript, downloadBlob, getUser, can } from './core.js';
 
 const BCID = { CODE128: 'code128', EAN13: 'ean13', EAN8: 'ean8', CODE39: 'code39', ITF: 'interleaved2of5', QR: 'qrcode', DATAMATRIX: 'datamatrix' };
 
@@ -128,7 +128,7 @@ export async function openLabelDialog(specs, { title = 'Etiketten drucken' } = {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'ZPL konnte nicht erzeugt werden.');
         downloadBlob(await res.blob(), 'etiketten.zpl');
       } },
-      ...(printers.length ? [{ label: 'An Drucker senden', icon: 'print', onClick: async (close) => {
+      ...(printers.length && can('print') ? [{ label: 'An Drucker senden', icon: 'print', onClick: async (close) => {
         const r = await post('/print', { printer_id: Number(printerSel.value), labels: withCopies() });
         toast(`${r.count} Etikett(en) an ${r.printer} gesendet.`, 'ok');
         close();
